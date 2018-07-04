@@ -46,6 +46,7 @@ namespace Preproccessor
                     int newIterCount = gcapp.nextIter();
                     if( newIterCount > iterCount )
                     {
+//                        gcapp.showImage();
                         run = 0;
                     }
                     else
@@ -132,5 +133,12 @@ namespace Preproccessor
         newImage = image(expandedBounding);
         newMask = mask(expandedBounding);
         boundingBox = expandedBounding;
+    }
+    
+    Mat illuminationNormalisation(Mat image, Mat mask)
+    {
+        Mat output = Illumination::normalisation(image, mask);
+        
+        return output;
     }
 }

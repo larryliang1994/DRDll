@@ -21,11 +21,22 @@
 #include "patch.h"
 #include "timer.h"
 #include "template_match_candidates.h"
+#include <sys/time.h>
 #include <opencv2/opencv.hpp>
+#include <iostream>
+
+
 
 namespace Inpaint {
 
     const int PATCHFLAGS = PATCH_BOUNDS;
+    
+    double CriminisiInpainter::get_timestamp()
+    {
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        return tv.tv_sec + tv.tv_usec*1e-6;
+    }
 
     CriminisiInpainter::UserSpecified::UserSpecified()
     {
@@ -141,26 +152,42 @@ namespace Inpaint {
     }
 
     void CriminisiInpainter::step()
-    {	
+    {
+        double start, end;
+        
+        start = get_timestamp();
 	    // We also need an updated knowledge of gradients in the border region
 	    updateFillFront();
+        end = get_timestamp();
+        time1 = time1 + end - start;
 	
+        start = get_timestamp();
 	    // Next, we need to select the best target patch on the boundary to be inpainted.
 	    cv::Point targetPatchLocation = findTargetPatchLocation();
+        end = get_timestamp();
+        time2 = time2 + end - start;
 
+        start = get_timestamp();
 	    // Determine the best matching source patch from which to inpaint.
 	    cv::Point sourcePatchLocation = findSourcePatchLocation(targetPatchLocation, true);
         if (sourcePatchLocation.x == -1)
             sourcePatchLocation = findSourcePatchLocation(targetPatchLocation, false);
+        end = get_timestamp();
+        time3 = time3 + end - start;
 
+        start = get_timestamp();
 	    // Copy values
 	    propagatePatch(targetPatchLocation, sourcePatchLocation);
+        end = get_timestamp();
+        time4 = time4 + end - start;
     }
 
     void CriminisiInpainter::updateFillFront()
     {
         // 2nd order derivative used to find border.
 	    cv::Laplacian(_targetRegion, _borderRegion, CV_8U, 3, 1, 0, cv::BORDER_REPLICATE);
+        
+//        return;
 
 	    // Update confidence values along fill front.
 	    for (int y = _startY; y < _endY; ++y) {
@@ -169,7 +196,8 @@ namespace Inpaint {
 			    if (bRow[x] > 0) {
 				    // Update confidence for border item
 				    cv::Point p(x, y);
-				    _confidence(p) = confidenceForPatchLocation(p);
+//                    _confidence(p) = 0.1;
+                    _confidence(p) = confidenceForPatchLocation(p);
 			    }
 		    }
 	    }
@@ -198,7 +226,11 @@ namespace Inpaint {
 		    const float *cRow = _confidence.ptr<float>(y);
 
 		    for (int x = _startX; x < _endX; ++x) {
+                
 			    if (bRow[x] > 0) {
+                    
+//                    bestLocation = cv::Point(x,y);
+//                    return bestLocation;
 
 				    // Data term
 				    cv::Vec2f grad(gxRow[x], gyRow[x]);
@@ -312,6 +344,11 @@ namespace Inpaint {
         while (ci.hasMoreSteps()) {
             ci.step();
         }
+        
+//        std::cout << "time1 = " << ci.time1 << std::endl;
+//        std::cout << "time2 = " << ci.time2 << std::endl;
+//        std::cout << "time3 = " << ci.time3 << std::endl;
+//        std::cout << "time4 = " << ci.time4 << std::endl;
 
         ci.image().copyTo(image.getMat());
     }

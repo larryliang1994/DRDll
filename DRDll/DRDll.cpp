@@ -122,6 +122,182 @@ Point2f getPoint2f(POINT2D source)
     return point;
 }
 
+void getRectMask(Mat image, vector<Point> points, Rect &rect, Mat &rectMask)
+{
+    int xMin = INT_MAX, yMin = INT_MAX, xMax = INT_MIN, yMax = INT_MIN;
+    for (int i = 0; i < points.size(); i++)
+    {
+        Point point = points[i];
+        if (point.x < xMin) { xMin = point.x; }
+        if (point.y < yMin) { yMin = point.y; }
+        if (point.x > xMax) { xMax = point.x; }
+        if (point.y > yMax) { yMax = point.y; }
+    }
+    
+    rect = Rect(xMin, yMin, xMax - xMin, yMax - yMin);
+    
+    rectMask.create(image.size(), CV_8UC1);
+    rectMask.setTo(Scalar(255));
+    
+    // Create Polygon from vertices
+    vector<Point> ROI_Poly;
+    approxPolyDP(points, ROI_Poly, 1.0, true);
+    
+    // Fill polygon white
+    fillConvexPoly(rectMask, ROI_Poly, Scalar(0));
+}
+
+void getContourMask(Mat image, Rect rect, Mat &contourMask)
+{
+    Mat mask, bgdModel, fgdModel;
+    grabCut( image, mask, rect, bgdModel, fgdModel, 5, GC_INIT_WITH_RECT );
+    
+    for (int i = 0; i < mask.rows; i++)
+    {
+        for (int j = 0; j < mask.cols; j++)
+        {
+            if ((int)mask.at<uchar>(i, j) == GC_PR_FGD)
+            {
+                mask.at<uchar>(i, j) = 255;
+            }
+            else
+            {
+                mask.at<uchar>(i, j) = 0;
+            }
+        }
+    }
+    
+    // find bounding boxes for all contours
+    vector<vector<Point>> contours;
+    vector<Vec4i> hierarchy;
+    findContours( mask, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
+    
+    int largest_area=0;
+    int largest_contour_index=0;
+    
+    for( int i = 0; i< contours.size(); i++ ) // iterate through each contour.
+    {
+        double a = contourArea( contours[i],false);  //  Find the area of contour
+        if(a > largest_area)
+        {
+            largest_area = a;
+            largest_contour_index = i;                //Store the index of largest contour
+        }
+    }
+    
+    contourMask = Mat(mask.rows, mask.cols, CV_8UC1, Scalar::all(0));
+//    drawContours( contourMask, contours,largest_contour_index, Scalar(255,255,255), CV_FILLED, 8, hierarchy );
+    
+    for( int i = 0; i< contours.size(); i++ ) // iterate through each contour.
+    {
+        drawContours( contourMask, contours, i, Scalar(255,255,255), CV_FILLED, 8, hierarchy );
+    }
+
+}
+
+void dilation(Mat image, Mat &dilatedMask, int dilation_elem = 2, int dilation_size = 10)
+{
+    Mat element = getStructuringElement( (MorphShapes)dilation_elem,
+                                        Size( 2*dilation_size + 1, 2*dilation_size+1 ),
+                                        Point( dilation_size, dilation_size ) );
+    /// Apply the dilation operation
+    dilate( image, dilatedMask, element );
+}
+
+double getProbability(double x, double mean, double stddev)
+{
+    //    double p = exp(-pow(x - mean, 2) / (2 * pow(stddev, 2))) / (stddev * sqrt(2 * M_PI));
+    
+    double max = mean;
+    double min = stddev;
+    double p = (x - min) * 1.0 / (max - min);
+    
+    return p;
+}
+
+void surroundingRandomisation(Mat image, Mat inpainted, Mat &output, Mat dilatedContourMask, Mat rectMask, Rect rect)
+{
+    image.copyTo(output);
+    
+    Point2i centre(rect.x + rect.width / 2, rect.y + rect.height / 2);
+    
+    vector<double> distances;
+    
+    for (int y = rect.y; y < rect.y + rect.height; y++)
+    {
+        for (int x = rect.x; x < rect.x + rect.width; x++)
+        {
+            // in surrounding
+            if (dilatedContourMask.at<uchar>(y, x) == 255 && rectMask.at<uchar>(y, x) == 0)
+            {
+                Point2i current(x, y);
+                
+                double xDistance = abs(current.x - centre.x) * 1.0 / rect.width;
+                double yDistance = abs(current.y - centre.y) * 1.0 / rect.height;
+                
+                double distance = sqrt(pow(xDistance, 2) + pow(yDistance, 2));
+                
+                distances.push_back(distance);
+            }
+        }
+    }
+    
+    double min = *min_element(distances.begin(), distances.end());
+    double max = *max_element(distances.begin(), distances.end());
+    double mean = accumulate(distances.begin(), distances.end(), 0.0) / distances.size();
+    double stddev = 0;
+    for (int i = 0; i < distances.size(); i++)
+    {
+        stddev += pow(distances[i] - mean, 2);
+    }
+    stddev = sqrt(stddev / (distances.size() - 1));
+
+    srand ((unsigned)time(NULL));
+    
+    for (int y = rect.y; y < rect.y + rect.height; y++)
+    {
+        for (int x = rect.x; x < rect.x + rect.width; x++)
+        {
+            // in surrounding, do randomisation
+            if (dilatedContourMask.at<uchar>(y, x) == 255 && rectMask.at<uchar>(y, x) == 0)
+            {
+                Point2i current(x, y);
+                
+                double xDistance = abs(current.x - centre.x) * 1.0 / rect.width;
+                double yDistance = abs(current.y - centre.y) * 1.0 / rect.height;
+                
+                double distance = sqrt(pow(xDistance, 2) + pow(yDistance, 2));
+                
+                double p = getProbability(distance, max, min);
+                
+                //                cout << p << endl;
+                
+                //                int pixel = p * 255;
+                //                output.at<Vec3b>(y, x) = Vec3b(pixel, pixel, pixel);
+                
+                if ((rand() * 1.0 / RAND_MAX) < p)
+                {
+                    //output.at<Vec3b>(y, x) = image.at<Vec3b>(y, x);
+                }
+                else
+                {
+                    output.at<Vec3b>(y, x) = inpainted.at<Vec3b>(y, x);
+                }
+            }
+            // in between, use original
+            else if (dilatedContourMask.at<uchar>(y, x) == 255 && rectMask.at<uchar>(y, x) == 255)
+            {
+                //output.at<Vec3b>(y, x) = image.at<Vec3b>(y, x);
+            }
+            // in roi, just copy inpainted
+            else
+            {
+                output.at<Vec3b>(y, x) = inpainted.at<Vec3b>(y, x);
+            }
+        }
+    }
+}
+
 extern "C" int EXPORT_API readImage(int height, int width, int channels, unsigned char imageData[])
 {
     Mat image = imageData2Mat(height, width, channels, imageData);
@@ -301,20 +477,21 @@ extern "C" void EXPORT_API fourPointsInpainting(unsigned char* outputData, int h
     memcpy(outputData, argb_img.data, argb_img.total() * argb_img.elemSize());
 }
 
-extern "C" void EXPORT_API tempFourPointsInpainting(unsigned char* outputData, int height, int width, int channels, unsigned char inpaintedImageData[], POINT2D frame0FourPoints[], unsigned char currentImageData[], POINT2D currentFourPoints[])
+extern "C" void EXPORT_API tempFourPointsInpainting(unsigned char* outputData, int height, int width, int channels, unsigned char inpaintedImageData[], unsigned char maskData[], POINT2D frame0FourPoints[], unsigned char currentImageData[], POINT2D currentFourPoints[])
 {
     Mat inpainted = imageData2Mat(height, width, channels, inpaintedImageData);
     Mat currentImage = imageData2Mat(height, width, channels, currentImageData);
+    Mat dilatedContourMask = imageData2Mat(height, width, 1, maskData);
+    
+    if (channels == 1)
+    {
+        cvtColor(inpainted, inpainted, CV_GRAY2BGR);
+        cvtColor(currentImage, currentImage, CV_GRAY2BGR);
+    }
     
     Point2f frame0PointsArray[] = { getPoint2f(frame0FourPoints[0]), getPoint2f(frame0FourPoints[1]), getPoint2f(frame0FourPoints[2]), getPoint2f(frame0FourPoints[3]) };
     Point2f currentPointsArray[] = { getPoint2f(currentFourPoints[0]), getPoint2f(currentFourPoints[1]), getPoint2f(currentFourPoints[2]), getPoint2f(currentFourPoints[3]) };
-    
-//    vector<Point> frame0Points;
-//    frame0Points.push_back(getPoint(frame0FourPoints[0]));
-//    frame0Points.push_back(getPoint(frame0FourPoints[1]));
-//    frame0Points.push_back(getPoint(frame0FourPoints[3]));
-//    frame0Points.push_back(getPoint(frame0FourPoints[2]));
-    
+
     vector<Point> currentPoints;
     currentPoints.push_back(getPoint(currentFourPoints[0]));
     currentPoints.push_back(getPoint(currentFourPoints[1]));
@@ -322,47 +499,64 @@ extern "C" void EXPORT_API tempFourPointsInpainting(unsigned char* outputData, i
     currentPoints.push_back(getPoint(currentFourPoints[2]));
     
     Mat M = getPerspectiveTransform(frame0PointsArray, currentPointsArray);
-    Mat transformed;
-    warpPerspective(inpainted, transformed, M, Size(width, height));
-    
+    Mat transformedInpainted;
+    warpPerspective(inpainted, transformedInpainted, M, Size(width, height));
+
     Mat currentMask;
     currentMask.create(currentImage.size(), CV_8UC1);
     currentMask.setTo(Scalar(0));
-    
+
     // Create Polygon from vertices
     vector<Point> currentROI_Poly;
     approxPolyDP(currentPoints, currentROI_Poly, 1.0, true);
     
     // Fill polygon white
     fillConvexPoly(currentMask, currentROI_Poly, Scalar(255));
-    
+
+    Rect rect;
+    Mat rectMask;
+    getRectMask(currentImage, currentPoints, rect, rectMask);
+
+    Mat transformedDilatedContourMask;
+    warpPerspective(dilatedContourMask, transformedDilatedContourMask, M, Size(width, height));
+
+    Mat output;
+    surroundingRandomisation(currentImage, transformedInpainted, output, transformedDilatedContourMask, rectMask, rect);
+
     // Cut out ROI and store it in imageDest
     Mat imageDest;
     currentImage.copyTo(imageDest);
-    transformed.copyTo(imageDest, currentMask);
-    
-    //Convert from RGB to ARGB
+    output.copyTo(imageDest, currentMask);
+
+    // Convert from RGB to ARGB
     Mat argb_img;
-    if (channels == 1)
-    {
-        cvtColor(imageDest, argb_img, CV_GRAY2BGRA);
-    }
-    else
-    {
+//    if (channels == 1)
+//    {
+//        cvtColor(imageDest, argb_img, CV_GRAY2BGRA);
+//    }
+//    else
+//    {
         cvtColor(imageDest, argb_img, CV_RGB2BGRA);
-    }
+//    }
     
     vector<Mat> bgra;
     split(argb_img, bgra);
     swap(bgra[0], bgra[3]);
     swap(bgra[1], bgra[2]);
     
+    //return argb_img.data;
+    
     memcpy(outputData, argb_img.data, argb_img.total() * argb_img.elemSize());
 }
 
-extern "C" void EXPORT_API initFourPointsInpainting(unsigned char* outputData, int height, int width, int channels, unsigned char frame0ImageData[], POINT2D frame0FourPoints[], int method)
+extern "C" void EXPORT_API initFourPointsInpainting(unsigned char* resultData, unsigned char* inpaintedData, unsigned char* maskData, int height, int width, int channels, unsigned char frame0ImageData[], POINT2D frame0FourPoints[], int method, int parameter)
 {
     Mat frame0 = imageData2Mat(height, width, channels, frame0ImageData);
+    
+    if (channels == 1)
+    {
+        cvtColor(frame0, frame0, CV_GRAY2BGR);
+    }
     
     vector<Point> frame0Points;
     frame0Points.push_back(getPoint(frame0FourPoints[0]));
@@ -370,23 +564,66 @@ extern "C" void EXPORT_API initFourPointsInpainting(unsigned char* outputData, i
     frame0Points.push_back(getPoint(frame0FourPoints[3]));
     frame0Points.push_back(getPoint(frame0FourPoints[2]));
     
-    Mat frame0Mask;
-    frame0Mask.create(frame0.size(), CV_8UC1);
-    frame0Mask.setTo(Scalar(255));
+    Rect rect;
+    Mat rectMask;
+    getRectMask(frame0, frame0Points, rect, rectMask);
     
-    // Create Polygon from vertices
-    vector<Point> frame0ROI_Poly;
-    approxPolyDP(frame0Points, frame0ROI_Poly, 1.0, true);
+    Mat contourMask;
+    getContourMask(frame0, rect, contourMask);
+
+    Mat dilatedContourMask;
+    dilation(contourMask, dilatedContourMask, 2, 20);
     
-    // Fill polygon white
-    fillConvexPoly(frame0Mask, frame0ROI_Poly, Scalar(0));
-    
-    Mat inpainted;
-    cvtColor(frame0, inpainted, CV_GRAY2BGR);
+    bitwise_not(dilatedContourMask, dilatedContourMask);
     
     DRUtil dRUtil;
-    inpainted = dRUtil.inpaint(inpainted, frame0Mask, (InpaintingMethod)method);
-    cvtColor(inpainted, inpainted, CV_BGR2GRAY);
+    Mat inpainted = dRUtil.inpaint(frame0, rectMask, (InpaintingMethod)method, parameter);
 
-    memcpy(outputData, inpainted.data, inpainted.total() * inpainted.elemSize());
+//    Mat result;
+//    surroundingRandomisation(frame0, inpainted, result, dilatedContourMask, rectMask, rect);
+    
+    if (channels == 1)
+    {
+//        cvtColor(result, result, CV_BGR2GRAY);
+        cvtColor(inpainted, inpainted, CV_BGR2GRAY);
+    }
+    
+//    memcpy(resultData, result.data, result.total() * result.elemSize());
+    memcpy(inpaintedData, inpainted.data, inpainted.total() * inpainted.elemSize());
+    memcpy(maskData, dilatedContourMask.data, dilatedContourMask.total() * dilatedContourMask.elemSize());
+    
+//    return output.data;
+    
+//    Mat frame0Mask;
+//    frame0Mask.create(frame0.size(), CV_8UC1);
+//    frame0Mask.setTo(Scalar(255));
+//
+//    // Create Polygon from vertices
+//    vector<Point> frame0ROI_Poly;
+//    approxPolyDP(frame0Points, frame0ROI_Poly, 1.0, true);
+//
+//    // Fill polygon white
+//    fillConvexPoly(frame0Mask, frame0ROI_Poly, Scalar(0));
+//
+//    Mat inpainted;
+//
+//    if (channels == 1)
+//    {
+//        cvtColor(frame0, inpainted, CV_GRAY2BGR);
+//    }
+//    else
+//    {
+//        frame0.copyTo(inpainted);
+//    }
+//
+//    DRUtil dRUtil;
+//    inpainted = dRUtil.inpaint(inpainted, frame0Mask, (InpaintingMethod)method);
+//
+//    if (channels == 1)
+//    {
+//        cvtColor(inpainted, inpainted, CV_BGR2GRAY);
+//    }
+//
+//    return inpainted.data;
+    //memcpy(outputData, inpainted.data, inpainted.total() * inpainted.elemSize());
 }

@@ -43,7 +43,8 @@ namespace Inpaint {
       */
     class CriminisiInpainter {
     public:
-
+        double time1 = 0, time2 = 0, time3 = 0, time4 = 0;
+        double get_timestamp();
 	    /** Empty constructor */
 	    CriminisiInpainter();
 	
@@ -107,6 +108,8 @@ namespace Inpaint {
 	    cv::Mat_<float> _isophoteX, _isophoteY, _confidence, _borderGradX, _borderGradY;
 	    int _halfPatchSize, _halfMatchSize;
 	    int _startX, _startY, _endX, _endY;
+        
+        
     };
 
     /** 

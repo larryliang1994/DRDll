@@ -22,11 +22,11 @@ Rect DRUtil::getRect()
     return Preproccessor::getRect();
 }
 
-Mat DRUtil::inpaint(Mat image, Mat mask, InpaintingMethod method)
+Mat DRUtil::inpaint(Mat image, Mat mask, InpaintingMethod method, int parameter)
 {
     Mat output;
     
-    output = Inpainter::inpainting(image, mask, method);
+    output = Inpainter::inpainting(image, mask, method, parameter);
     
     return output;
 }

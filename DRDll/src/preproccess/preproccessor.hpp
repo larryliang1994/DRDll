@@ -23,6 +23,8 @@ namespace Preproccessor
     
     Mat createMask(Mat image);
     void createSourceMask(Mat image, Mat mask, int neighbourSize, Mat &newImage, Mat &newMask, Rect &boundingBox);
+    
+    Mat illuminationNormalisation(Mat image, Mat mask);
 }
 
 #endif /* preproccessor_hpp */

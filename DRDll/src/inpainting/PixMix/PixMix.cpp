@@ -42,12 +42,13 @@ void PixMix::init(
 
 void PixMix::execute(
                      cv::Mat_<cv::Vec3b> &dst,
-                     const float alpha
+                     const float alpha,
+                     int iteration
                      )
 {
     for (int lv = int(pm.size()) - 1; lv >= 0; --lv)
     {
-        pm[lv].execute(alpha, 4, 1, 0.5f);
+        pm[lv].execute(alpha, iteration, 1, 0.5f);
         if (lv > 0) fillInLowerLv(pm[lv], pm[lv - 1]);
     }
     

@@ -10,16 +10,16 @@
 
 namespace Illumination
 {
-    float medianMat(Mat input)
+    uchar medianMat(Mat input)
     {
         // spread Input Mat to single row
-        Mat output = Mat(1, input.rows*input.cols, CV_32FC1);
+        Mat output = Mat(1, input.rows*input.cols, CV_8UC1);
         
         for (int i = 0; i < input.rows; i++)
         {
             for (int j = 0; j < input.cols; j++)
             {
-                output.at<float>(0, i*input.cols+j) = input.at<float>(i, j);
+                output.at<uchar>(0, i*input.cols+j) = input.at<uchar>(i, j);
             }
         }
         
@@ -27,44 +27,52 @@ namespace Illumination
         
         //cout << output << endl;
         
-        vector<float> vecFromMat;
+        vector<uchar> vecFromMat;
         output.copyTo(vecFromMat); // Copy Input Mat to vector vecFromMat
         
         std::nth_element(vecFromMat.begin(), vecFromMat.begin() + vecFromMat.size() / 2, vecFromMat.end());
-        return vecFromMat[vecFromMat.size() / 2];
+        return (uchar)vecFromMat[vecFromMat.size() / 2];
     }
     
-    Mat getMedian(Mat image, Mat mask, int neighbourSize)
+    uchar averageMat(Mat input)
+    {
+        int sum = 0;
+        for (int i = 0; i < input.rows; i++)
+        {
+            for (int j = 0; j < input.cols; j++)
+            {
+                sum += (int)input.at<uchar>(i, j);
+            }
+        }
+        
+        int average = (int)(1.0 * sum / (input.rows * input.cols));
+        
+        return (uchar)average;
+    }
+    
+    Mat getMedian(Mat image, Mat mask, int blockSize)
     {
         Mat expandedImage;
         
-        copyMakeBorder(image, expandedImage,
-                       neighbourSize/2, neighbourSize/2, neighbourSize/2, neighbourSize/2, BORDER_REPLICATE);
+        copyMakeBorder(image, expandedImage, blockSize/2, blockSize/2, blockSize/2, blockSize/2, BORDER_REPLICATE);
     
-        Mat output = Mat(image.rows, image.cols, CV_32FC3);
+        Mat output = Mat(image.rows, image.cols, CV_8UC1);
         
-        for (int y = neighbourSize/2; y < expandedImage.rows - neighbourSize/2; y++)
+        for (int y = blockSize/2; y < expandedImage.rows - blockSize/2; y++)
         {
-            for (int x = neighbourSize/2; x < expandedImage.cols - neighbourSize/2; x++)
+            for (int x = blockSize/2; x < expandedImage.cols - blockSize/2; x++)
             {
                 // background, in source mask
-                if (mask.at<uchar>(y - neighbourSize/2, x - neighbourSize/2) == 0)
+//                if (mask.at<uchar>(y - blockSize/2, x - blockSize/2) == 255)
                 {
-                    Mat target = expandedImage(Rect(x - neighbourSize/2, y - neighbourSize/2, neighbourSize, neighbourSize));
-                    
-//                    cout << expandedImage.depth() << "  " << expandedImage.channels() << endl;
-//                    cout << target.depth() << "  " << target.channels() << endl;
-                    
+                    Mat target = expandedImage(Rect(x - blockSize/2, y - blockSize/2, blockSize, blockSize));
+
                     vector<Mat> planes(3);
                     split(target, planes);
                     
-                    float median0 = medianMat(planes[0]);
-                    float median1 = medianMat(planes[1]);
-                    float median2 = medianMat(planes[2]);
-                    
-                    output.at<Vec3f>(y - neighbourSize/2, x - neighbourSize/2)[0] = median0;
-                    output.at<Vec3f>(y - neighbourSize/2, x - neighbourSize/2)[1] = median1;
-                    output.at<Vec3f>(y - neighbourSize/2, x - neighbourSize/2)[2] = median2;
+                    uchar median = medianMat(planes[0]);
+
+                    output.at<uchar>(y - blockSize/2, x - blockSize/2) = median;
                 }
             }
         }
@@ -77,33 +85,51 @@ namespace Illumination
         // The illumination normalization is carried out in the YUV color space.
         // The size of the median block should be large enough to represent global illumination.
         Mat output;
-        
+
         Mat source;
         cvtColor(image, source, CV_BGR2YUV);
         
         Mat median;
-        median = getMedian(image, mask, 3);
+//        median = getMedian(source, mask, 21);
+        
+        medianBlur(source, median, 21);
 
         vector<Mat> source_planes(3);
         split(source, source_planes);
 
-        vector<Mat> median_planes(3);
+        vector<Mat> median_planes(1);
         split(median, median_planes);
 
         vector<Mat> output_planes(3);
+        
+        source_planes[0].convertTo(source_planes[0], CV_16S);
+        median_planes[0].convertTo(median_planes[0], CV_16S);
 
-        output_planes[0] = source_planes[0] - median_planes[0] + mean(median).val[0];
+        output_planes[0] = source_planes[0] - median_planes[0] + mean(median_planes[0]).val[0];
+        
+//        cout << mean(median_planes[0]).val[0] << endl;
+        
+        // normalise to 0-255
+        double min, max;
+        minMaxLoc(output_planes[0], &min, &max);
+        
+        double min_, max_;
+        minMaxLoc(source_planes[0], &min_, &max_);
+        
+        double a = (max_ - min_) / (max - min);
+        double b = min_ - a * min;
+        
+        output_planes[0].convertTo(output_planes[0], CV_8U, a, b);
+        
         output_planes[1] = source_planes[1];// - median_planes[1] + mean(median).val[1];
         output_planes[2] = source_planes[2];// - median_planes[2] + mean(median).val[2];
-
-        merge(output_planes, output);
-
-        //normalize(output, output);
-        //output = source;
-        cvtColor(output, output, CV_YUV2BGR);
         
-        output.convertTo(output, CV_8U);
-        imshow("output", output);
+        merge(output_planes, output);
+        cvtColor(output, output, CV_YUV2BGR);
+
+//        imshow("output", output);
+//
+//        imwrite("output1.jpg", output);
         
         return output;
     }
@@ -139,5 +165,52 @@ namespace Illumination
 //        cv::waitKey();
         
         return image_clahe;
+    }
+    
+    Mat compensation(Mat source, Mat inpainted, Mat mask)
+    {
+        Mat sourceYUV;
+        cvtColor(source, sourceYUV, CV_BGR2YUV);
+        
+        vector<Mat> source_planes(3);
+        split(sourceYUV, source_planes);
+        
+        source_planes[0].copyTo(source_planes[1]);
+        source_planes[0].copyTo(source_planes[2]);
+        
+        Mat sourceAllY;
+        merge(source_planes, sourceAllY);
+        
+        cvtColor(sourceAllY, sourceAllY, CV_YUV2BGR);
+        
+//        imshow("AllY", sourceAllY);
+        
+        sourceAllY = Inpainter::inpainting(sourceAllY, mask, InpaintingMethod::INPAINTING_PIXMIX);
+        
+//        imshow("Inpainted AllY", sourceAllY);
+        
+        cvtColor(sourceAllY, sourceAllY, CV_BGR2YUV);
+        split(sourceAllY, source_planes);
+        
+        Mat inpaintedYUV;
+        cvtColor(inpainted, inpaintedYUV, CV_BGR2YUV);
+        
+        vector<Mat> output_planes(3);
+        split(inpaintedYUV, output_planes);
+        
+        output_planes[0] = source_planes[0];
+        
+        Mat output;
+        merge(output_planes, output);
+        
+        cvtColor(output, output, CV_YUV2BGR);
+        
+//        imshow("Merged", output);
+        
+//        imshow("inpainted", inpainted);
+        
+//        waitKey(0);
+        
+        return output;
     }
 }

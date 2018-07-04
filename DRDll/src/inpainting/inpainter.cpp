@@ -30,26 +30,26 @@ namespace Inpainter
         return mask;
     }
     
-    Mat inpainting(Mat image, Mat mask, InpaintingMethod method)
+    Mat inpainting(Mat image, Mat mask, InpaintingMethod method, int parameter)
     {
         Mat output;
         
         switch(method)
         {
             case INPAINTING_CV_TELEA:
-                output = cvInpainting(image, mask, INPAINT_TELEA);
+                output = cvInpainting(image, mask, INPAINT_TELEA, parameter);
                 break;
                 
             case INPAINTING_CV_NS:
-                output = cvInpainting(image, mask, INPAINT_NS);
+                output = cvInpainting(image, mask, INPAINT_NS, parameter);
                 break;
                 
             case INPAINTING_EXEMPLAR:
-                output = exemplarInpainting(image, mask);
+                output = exemplarInpainting(image, mask, parameter);
                 break;
                 
             case INPAINTING_PIXMIX:
-                output = pixmixInpainting(image, mask);
+                output = pixmixInpainting(image, mask, parameter);
                 break;
                 
             case INPAINTING_FAST:
@@ -64,36 +64,54 @@ namespace Inpainter
         return output;
     }
     
-    Mat cvInpainting(Mat image, Mat mask, int method)
+    Mat cvInpainting(Mat image, Mat mask, int method, int inpaintRadius)
     {
+        if (inpaintRadius == -1)
+        {
+            inpaintRadius = 15;
+        }
+        
         Mat output;
         
         mask = reverseMask(mask);
         
-        inpaint(image, mask, output, 5.0, method);
+        inpaint(image, mask, output, inpaintRadius, method);
         
         return output;
     }
     
-    Mat exemplarInpainting(Mat image, Mat mask)
+    Mat exemplarInpainting(Mat image, Mat mask, int patchSize)
     {
+        if (patchSize == -1)
+        {
+            patchSize = 31;
+        }
+        
         Mat output;
         image.copyTo(output);
         
-        mask = reverseMask(mask);
+        Mat newMask;
+        mask.copyTo(newMask);
+        newMask = reverseMask(newMask);
         
-        Mat sourceMask = Mat();
+        Mat sourceMask;
+        sourceMask.create(image.size(), CV_8UC1);
         sourceMask.setTo(Scalar(0));
         
         //imwrite("mask.png", mask);
         
-        Inpaint::inpaintCriminisi(output, mask, sourceMask, 40);
+        Inpaint::inpaintCriminisi(output, newMask, sourceMask, patchSize);
         
         return output;
     }
     
-    Mat pixmixInpainting(Mat image, Mat mask)
+    Mat pixmixInpainting(Mat image, Mat mask, int iteration)
     {
+        if (iteration == -1)
+        {
+            iteration = 2;
+        }
+        
         Mat_<Vec3b> output;
         
         //mask = reverseMask(mask);
@@ -101,7 +119,7 @@ namespace Inpainter
         PixMix pm;
         pm.init(image, mask);
         
-        pm.execute(output, 0.05f);
+        pm.execute(output, 0.05f, iteration);
         
         return output;
     }

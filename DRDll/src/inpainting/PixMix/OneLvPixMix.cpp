@@ -55,20 +55,20 @@ void OneLvPixMix::execute(
 		cv::Mat_<cv::Vec3b> vizPosMap, vizColor;
 		Util::createVizPosMap(mPosMap[WO_BORDER], vizPosMap);
 		cv::resize(vizPosMap, vizPosMap, cv::Size(640, 480), 0.0, 0.0, cv::INTER_NEAREST);
-//        cv::imshow("prev posMap", vizPosMap);
+		//cv::imshow("prev posMap", vizPosMap);
 		cv::resize(mColor[WO_BORDER], vizColor, cv::Size(640, 480), 0.0, 0.0, cv::INTER_NEAREST);
-//        cv::imshow("prev color", vizColor);
-//        cv::waitKey(1);
+		//cv::imshow("prev color", vizColor);
+		//cv::waitKey(1);
 		
 		if (itr % 2 == 0) fwdUpdate(scAlpha, acAlpha, thDist, maxRandSearchItr);
 		else bwdUpdate(scAlpha, acAlpha, thDist, maxRandSearchItr);
 
 		Util::createVizPosMap(mPosMap[WO_BORDER], vizPosMap);
 		cv::resize(vizPosMap, vizPosMap, cv::Size(640, 480), 0.0, 0.0, cv::INTER_NEAREST);
-//        cv::imshow("curr posMap", vizPosMap);
+		//cv::imshow("curr posMap", vizPosMap);
 		cv::resize(mColor[WO_BORDER], vizColor, cv::Size(640, 480), 0.0, 0.0, cv::INTER_NEAREST);
-//        cv::imshow("curr color", vizColor);
-//        cv::waitKey(1);
+		//cv::imshow("curr color", vizColor);
+		//cv::waitKey(1);
 
 		inpaint();
 	}

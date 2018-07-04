@@ -29,11 +29,11 @@ namespace Inpainter
 {
     Mat reverseMask(Mat mask);
     
-    Mat inpainting(Mat image, Mat mask, InpaintingMethod method);
+    Mat inpainting(Mat image, Mat mask, InpaintingMethod method, int parameter = -1);
     
-    Mat cvInpainting(Mat image, Mat mask, int method);
-    Mat exemplarInpainting(Mat image, Mat mask);
-    Mat pixmixInpainting(Mat image, Mat mask);
+    Mat cvInpainting(Mat image, Mat mask, int method, int inpaintRadius = -1);
+    Mat exemplarInpainting(Mat image, Mat mask, int patchSize = -1);
+    Mat pixmixInpainting(Mat image, Mat mask, int iteration = -1);
     Mat fastInpainting(Mat image, Mat mask);
 }
 

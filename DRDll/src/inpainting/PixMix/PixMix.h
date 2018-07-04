@@ -10,7 +10,7 @@ public:
 	~PixMix();
 
 	void init(const cv::Mat_<cv::Vec3b> &color, const cv::Mat_<uchar> &mask, const int blurSize = 5);
-	void execute(cv::Mat_<cv::Vec3b> &dst, const float alpha);
+	void execute(cv::Mat_<cv::Vec3b> &dst, const float alpha, int iteration);
 
 private:
 	std::vector<OneLvPixMix> pm;

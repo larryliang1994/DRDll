@@ -198,16 +198,16 @@ void GrabCut::mouseClick( int event, int x, int y, int flags, void* )
 int GrabCut::nextIter()
 {
     if( isInitialized )
-        grabCut( *image, mask, rect, bgdModel, fgdModel, 1 );
+        grabCut( *image, mask, rect, bgdModel, fgdModel, 5 );
     else
     {
         if( rectState != SET )
             return iterCount;
         
         if( lblsState == SET || prLblsState == SET )
-            grabCut( *image, mask, rect, bgdModel, fgdModel, 1, GC_INIT_WITH_MASK );
+            grabCut( *image, mask, rect, bgdModel, fgdModel, 5, GC_INIT_WITH_MASK );
         else
-            grabCut( *image, mask, rect, bgdModel, fgdModel, 1, GC_INIT_WITH_RECT );
+            grabCut( *image, mask, rect, bgdModel, fgdModel, 5, GC_INIT_WITH_RECT );
         
         isInitialized = true;
     }
@@ -221,7 +221,25 @@ int GrabCut::nextIter()
 
 Mat GrabCut::getMask()
 {
-    return mask;
+    Mat newMask;
+    mask.copyTo(newMask);
+    
+//    for (int y = 0; y < newMask.rows; y++)
+//    {
+//        for (int x = 0; x < newMask.cols; x++)
+//        {
+//            if (newMask.at<uchar>(y, x) == GC_BGD)
+//            {
+//                newMask.at<uchar>(y, x) = 255;
+//            }
+//            else
+//            {
+//                newMask.at<uchar>(y, x) = 0;
+//            }
+//        }
+//    }
+    
+    return newMask;
 }
 
 Rect GrabCut::getRect()

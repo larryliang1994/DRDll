@@ -30,7 +30,7 @@ public:
     Mat selection(Mat image);
     Rect getRect();
     
-    Mat inpaint(Mat image, Mat mask, InpaintingMethod method);
+    Mat inpaint(Mat image, Mat mask, InpaintingMethod method, int parameter = -1);
     void initTracking(Mat frame, Rect2d bbox, TrackingMethod method);
     Rect2d tracking(Mat frame, Rect2d bbox);
 };
