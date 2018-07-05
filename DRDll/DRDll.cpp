@@ -242,6 +242,12 @@ void surroundingRandomisation(Mat image, Mat inpainted, Mat &output, Mat dilated
         }
     }
     
+    if (distances.size() == 0)
+    {
+        inpainted.copyTo(output);
+        return;
+    }
+    
     double min = *min_element(distances.begin(), distances.end());
     double max = *max_element(distances.begin(), distances.end());
     double mean = accumulate(distances.begin(), distances.end(), 0.0) / distances.size();
@@ -296,6 +302,30 @@ void surroundingRandomisation(Mat image, Mat inpainted, Mat &output, Mat dilated
             }
         }
     }
+}
+
+void resizeImage(Mat image, Mat &outputImage, vector<Point> points, vector<Point> &outputPoints)
+{
+    int desiredWidth = 640, desiredHeight = 480;
+    
+    if (image.cols == desiredWidth && image.rows == desiredHeight)
+    {
+        image.copyTo(outputImage);
+        outputPoints = points;
+        return;
+    }
+    
+    double widthRatio  = desiredWidth * 1.0  / image.cols;
+    double heightRatio = desiredHeight * 1.0 / image.rows;
+    
+    outputPoints = vector<Point>();
+    for (int i = 0; i < points.size(); i++)
+    {
+        Point newPoint(points[i].x * widthRatio, points[i].y * heightRatio);
+        outputPoints.push_back(newPoint);
+    }
+    
+    resize(image, outputImage, Size(desiredWidth, desiredHeight));
 }
 
 extern "C" int EXPORT_API readImage(int height, int width, int channels, unsigned char imageData[])
@@ -479,28 +509,56 @@ extern "C" void EXPORT_API fourPointsInpainting(unsigned char* outputData, int h
 
 extern "C" void EXPORT_API tempFourPointsInpainting(unsigned char* outputData, int height, int width, int channels, unsigned char inpaintedImageData[], unsigned char maskData[], POINT2D frame0FourPoints[], unsigned char currentImageData[], POINT2D currentFourPoints[])
 {
-    Mat inpainted = imageData2Mat(height, width, channels, inpaintedImageData);
-    Mat currentImage = imageData2Mat(height, width, channels, currentImageData);
-    Mat dilatedContourMask = imageData2Mat(height, width, 1, maskData);
+    int desiredWidth = 640, desiredHeight = 480;
+    
+    Mat srcInpainted = imageData2Mat(height, width, channels, inpaintedImageData);
+    Mat srcCurrentImage = imageData2Mat(height, width, channels, currentImageData);
+    Mat srcDilatedContourMask = imageData2Mat(height, width, 1, maskData);
     
     if (channels == 1)
     {
-        cvtColor(inpainted, inpainted, CV_GRAY2BGR);
-        cvtColor(currentImage, currentImage, CV_GRAY2BGR);
+        cvtColor(srcInpainted, srcInpainted, CV_GRAY2BGR);
+        cvtColor(srcCurrentImage, srcCurrentImage, CV_GRAY2BGR);
     }
     
-    Point2f frame0PointsArray[] = { getPoint2f(frame0FourPoints[0]), getPoint2f(frame0FourPoints[1]), getPoint2f(frame0FourPoints[2]), getPoint2f(frame0FourPoints[3]) };
-    Point2f currentPointsArray[] = { getPoint2f(currentFourPoints[0]), getPoint2f(currentFourPoints[1]), getPoint2f(currentFourPoints[2]), getPoint2f(currentFourPoints[3]) };
-
+    vector<Point> srcCurrentPoints;
+    srcCurrentPoints.push_back(getPoint(currentFourPoints[0]));
+    srcCurrentPoints.push_back(getPoint(currentFourPoints[1]));
+    srcCurrentPoints.push_back(getPoint(currentFourPoints[3]));
+    srcCurrentPoints.push_back(getPoint(currentFourPoints[2]));
+    
+    Mat inpainted, currentImage, dilatedContourMask;
     vector<Point> currentPoints;
-    currentPoints.push_back(getPoint(currentFourPoints[0]));
-    currentPoints.push_back(getPoint(currentFourPoints[1]));
-    currentPoints.push_back(getPoint(currentFourPoints[3]));
-    currentPoints.push_back(getPoint(currentFourPoints[2]));
+    resizeImage(srcInpainted, inpainted, srcCurrentPoints, currentPoints);
+    resizeImage(srcCurrentImage, currentImage, srcCurrentPoints, currentPoints);
+    resizeImage(srcDilatedContourMask, dilatedContourMask, srcCurrentPoints, currentPoints);
+    
+    double widthRatio  = desiredWidth * 1.0  / width;
+    double heightRatio = desiredHeight * 1.0 / height;
+    
+    Point2f frame0PointsArray[] =
+    {
+        getPoint2f(frame0FourPoints[0]),
+        getPoint2f(frame0FourPoints[1]),
+        getPoint2f(frame0FourPoints[2]),
+        getPoint2f(frame0FourPoints[3])
+    };
+    frame0PointsArray[0] = Point2f(frame0PointsArray[0].x * widthRatio, frame0PointsArray[0].y * heightRatio);
+    frame0PointsArray[1] = Point2f(frame0PointsArray[1].x * widthRatio, frame0PointsArray[1].y * heightRatio);
+    frame0PointsArray[2] = Point2f(frame0PointsArray[2].x * widthRatio, frame0PointsArray[2].y * heightRatio);
+    frame0PointsArray[3] = Point2f(frame0PointsArray[3].x * widthRatio, frame0PointsArray[3].y * heightRatio);
+    
+    Point2f currentPointsArray[] =
+    {
+        Point2f(currentPoints[0].x, currentPoints[0].y),
+        Point2f(currentPoints[1].x, currentPoints[1].y),
+        Point2f(currentPoints[3].x, currentPoints[3].y),
+        Point2f(currentPoints[2].x, currentPoints[2].y),
+    };
     
     Mat M = getPerspectiveTransform(frame0PointsArray, currentPointsArray);
     Mat transformedInpainted;
-    warpPerspective(inpainted, transformedInpainted, M, Size(width, height));
+    warpPerspective(inpainted, transformedInpainted, M, Size(desiredWidth, desiredHeight));
 
     Mat currentMask;
     currentMask.create(currentImage.size(), CV_8UC1);
@@ -518,10 +576,12 @@ extern "C" void EXPORT_API tempFourPointsInpainting(unsigned char* outputData, i
     getRectMask(currentImage, currentPoints, rect, rectMask);
 
     Mat transformedDilatedContourMask;
-    warpPerspective(dilatedContourMask, transformedDilatedContourMask, M, Size(width, height));
+    warpPerspective(dilatedContourMask, transformedDilatedContourMask, M, Size(desiredWidth, desiredHeight));
 
     Mat output;
     surroundingRandomisation(currentImage, transformedInpainted, output, transformedDilatedContourMask, rectMask, rect);
+    
+//    transformedInpainted.copyTo(output);
 
     // Cut out ROI and store it in imageDest
     Mat imageDest;
@@ -536,7 +596,7 @@ extern "C" void EXPORT_API tempFourPointsInpainting(unsigned char* outputData, i
 //    }
 //    else
 //    {
-        cvtColor(imageDest, argb_img, CV_RGB2BGRA);
+        cvtColor(imageDest, argb_img, CV_BGR2BGRA);
 //    }
     
     vector<Mat> bgra;
@@ -546,38 +606,52 @@ extern "C" void EXPORT_API tempFourPointsInpainting(unsigned char* outputData, i
     
     //return argb_img.data;
     
+    resize(argb_img, argb_img, Size(width, height));
+    
     memcpy(outputData, argb_img.data, argb_img.total() * argb_img.elemSize());
 }
 
 extern "C" void EXPORT_API initFourPointsInpainting(unsigned char* resultData, unsigned char* inpaintedData, unsigned char* maskData, int height, int width, int channels, unsigned char frame0ImageData[], POINT2D frame0FourPoints[], int method, int parameter)
 {
-    Mat frame0 = imageData2Mat(height, width, channels, frame0ImageData);
+    Mat srcFrame0 = imageData2Mat(height, width, channels, frame0ImageData);
     
     if (channels == 1)
     {
-        cvtColor(frame0, frame0, CV_GRAY2BGR);
+        cvtColor(srcFrame0, srcFrame0, CV_GRAY2BGR);
     }
     
+    vector<Point> srcFrame0Points;
+    srcFrame0Points.push_back(getPoint(frame0FourPoints[0]));
+    srcFrame0Points.push_back(getPoint(frame0FourPoints[1]));
+    srcFrame0Points.push_back(getPoint(frame0FourPoints[3]));
+    srcFrame0Points.push_back(getPoint(frame0FourPoints[2]));
+    
+    Mat frame0;
     vector<Point> frame0Points;
-    frame0Points.push_back(getPoint(frame0FourPoints[0]));
-    frame0Points.push_back(getPoint(frame0FourPoints[1]));
-    frame0Points.push_back(getPoint(frame0FourPoints[3]));
-    frame0Points.push_back(getPoint(frame0FourPoints[2]));
+    resizeImage(srcFrame0, frame0, srcFrame0Points, frame0Points);
     
     Rect rect;
     Mat rectMask;
     getRectMask(frame0, frame0Points, rect, rectMask);
     
+    //imwrite("rectMask.jpg", rectMask);
+    
     Mat contourMask;
     getContourMask(frame0, rect, contourMask);
+    
+    //imwrite("contourMask.jpg", contourMask);
 
     Mat dilatedContourMask;
     dilation(contourMask, dilatedContourMask, 2, 20);
     
     bitwise_not(dilatedContourMask, dilatedContourMask);
     
+    //imwrite("dilatedContourMask.jpg", dilatedContourMask);
+    
     DRUtil dRUtil;
     Mat inpainted = dRUtil.inpaint(frame0, rectMask, (InpaintingMethod)method, parameter);
+    
+    //imwrite("inpainted.jpg", inpainted);
 
 //    Mat result;
 //    surroundingRandomisation(frame0, inpainted, result, dilatedContourMask, rectMask, rect);
@@ -587,6 +661,9 @@ extern "C" void EXPORT_API initFourPointsInpainting(unsigned char* resultData, u
 //        cvtColor(result, result, CV_BGR2GRAY);
         cvtColor(inpainted, inpainted, CV_BGR2GRAY);
     }
+    
+    resize(inpainted, inpainted, Size(width, height));
+    resize(dilatedContourMask, dilatedContourMask, Size(width, height));
     
 //    memcpy(resultData, result.data, result.total() * result.elemSize());
     memcpy(inpaintedData, inpainted.data, inpainted.total() * inpainted.elemSize());

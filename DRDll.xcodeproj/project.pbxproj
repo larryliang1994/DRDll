@@ -104,11 +104,11 @@
 		9F6B767420ED13BF000E5824 /* inpainting */ = {
 			isa = PBXGroup;
 			children = (
+				9F6B767820ED13BF000E5824 /* exemplar */,
+				9F6B769120ED13BF000E5824 /* PixMix */,
 				9F6B767520ED13BF000E5824 /* inpaintingresult.cpp */,
 				9F6B767620ED13BF000E5824 /* fast.cpp */,
 				9F6B767720ED13BF000E5824 /* inpaintingresult.h */,
-				9F6B767820ED13BF000E5824 /* exemplar */,
-				9F6B769120ED13BF000E5824 /* PixMix */,
 				9F6B769820ED13BF000E5824 /* inpainter.hpp */,
 				9F6B769920ED13BF000E5824 /* inpainter.cpp */,
 				9F6B769A20ED13BF000E5824 /* FastDigitalImageInpainting.hpp */,

@@ -48,7 +48,7 @@ void PixMix::execute(
 {
     for (int lv = int(pm.size()) - 1; lv >= 0; --lv)
     {
-        pm[lv].execute(alpha, iteration, 1, 0.5f);
+        pm[lv].execute(alpha, iteration, 5, 0.5f);
         if (lv > 0) fillInLowerLv(pm[lv], pm[lv - 1]);
     }
     
