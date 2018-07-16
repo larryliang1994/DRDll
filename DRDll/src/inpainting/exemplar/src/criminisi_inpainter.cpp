@@ -280,9 +280,11 @@ namespace Inpaint {
             _tmc.findCandidates(targetImagePatch, invTargetMask, _candidates, 3, 10);
         
         int count = 0;
-        for (int y = _startY; y < _endY; ++y) {
-		    for (int x = _startX; x < _endX; ++x) {
-			    
+        //        for (int y = _startY; y < _endY; ++y) {
+        //            for (int x = _startX; x < _endX; ++x) {
+        for (int y = _startY; y < _endY; y+=(_halfPatchSize/2)) {
+            for (int x = _startX; x < _endX; x+=(_halfPatchSize/2)) {
+                
                 // Note, candidates need to be corrected. Centered patch locations used here, top-left used with candidates.
                 const bool shouldTest = (!useCandidateFilter || _candidates.at<uchar>(y - _halfMatchSize, x - _halfMatchSize)) &&
                                          _sourceRegion.at<uchar>(y, x) > 0;

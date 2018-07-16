@@ -33,6 +33,7 @@ namespace Inpainter
     Mat inpainting(Mat image, Mat mask, InpaintingMethod method, int parameter)
     {
         Mat output;
+        Mat sourceMask;
         
         switch(method)
         {
@@ -45,7 +46,9 @@ namespace Inpainter
                 break;
                 
             case INPAINTING_EXEMPLAR:
-                output = exemplarInpainting(image, mask, parameter);
+                sourceMask.create(image.size(), CV_8UC1);
+                sourceMask.setTo(Scalar(0));
+                output = exemplarInpainting(image, mask, sourceMask, parameter);
                 break;
                 
             case INPAINTING_PIXMIX:
@@ -80,7 +83,7 @@ namespace Inpainter
         return output;
     }
     
-    Mat exemplarInpainting(Mat image, Mat mask, int patchSize)
+    Mat exemplarInpainting(Mat image, Mat mask, Mat sourceMask, int patchSize)
     {
         if (patchSize == -1)
         {
@@ -93,12 +96,6 @@ namespace Inpainter
         Mat newMask;
         mask.copyTo(newMask);
         newMask = reverseMask(newMask);
-        
-        Mat sourceMask;
-        sourceMask.create(image.size(), CV_8UC1);
-        sourceMask.setTo(Scalar(0));
-        
-        //imwrite("mask.png", mask);
         
         Inpaint::inpaintCriminisi(output, newMask, sourceMask, patchSize);
         
@@ -133,3 +130,4 @@ namespace Inpainter
         return output;
     }
 }
+

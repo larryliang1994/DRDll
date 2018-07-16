@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		9F52EB3420F8A9E300B8945A /* globalvariables.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9F52EB3320F8A9E300B8945A /* globalvariables.cpp */; };
 		9F6B76A820ED13C0000E5824 /* inpaintingresult.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9F6B767520ED13BF000E5824 /* inpaintingresult.cpp */; };
 		9F6B76A920ED13C0000E5824 /* fast.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9F6B767620ED13BF000E5824 /* fast.cpp */; };
 		9F6B76AA20ED13C0000E5824 /* inpaint_image_criminisi.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9F6B768620ED13BF000E5824 /* inpaint_image_criminisi.cpp */; };
@@ -30,6 +31,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		9F52EB3220F8A45600B8945A /* globalvariables.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = globalvariables.h; sourceTree = "<group>"; };
+		9F52EB3320F8A9E300B8945A /* globalvariables.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = globalvariables.cpp; sourceTree = "<group>"; };
 		9F6B767520ED13BF000E5824 /* inpaintingresult.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = inpaintingresult.cpp; sourceTree = "<group>"; };
 		9F6B767620ED13BF000E5824 /* fast.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = fast.cpp; sourceTree = "<group>"; };
 		9F6B767720ED13BF000E5824 /* inpaintingresult.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = inpaintingresult.h; sourceTree = "<group>"; };
@@ -97,6 +100,8 @@
 				9F6B767420ED13BF000E5824 /* inpainting */,
 				9F6B769D20ED13BF000E5824 /* drutil.cpp */,
 				9F6B769C20ED13BF000E5824 /* drutil.hpp */,
+				9F52EB3220F8A45600B8945A /* globalvariables.h */,
+				9F52EB3320F8A9E300B8945A /* globalvariables.cpp */,
 			);
 			path = src;
 			sourceTree = "<group>";
@@ -329,6 +334,7 @@
 				9F6B76B120ED13C0000E5824 /* patch_match.cpp in Sources */,
 				9F6B76AB20ED13C0000E5824 /* patch_match.cpp in Sources */,
 				9F6B76B320ED13C0000E5824 /* Utilities.cpp in Sources */,
+				9F52EB3420F8A9E300B8945A /* globalvariables.cpp in Sources */,
 				9F6B76B420ED13C0000E5824 /* OneLvPixMix.cpp in Sources */,
 				9F6B76B820ED13C0000E5824 /* illumination.cpp in Sources */,
 				9F6B76B620ED13C0000E5824 /* drutil.cpp in Sources */,

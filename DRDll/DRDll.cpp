@@ -9,6 +9,28 @@
 
 #include "DRDll.h"
 
+extern int desiredWidth;
+extern int desiredHeight;
+
+extern int height;
+extern int width;
+extern int channels;
+
+extern int controlPointSize;
+
+extern int illuminationBlockSize;
+
+extern vector<Point> frame0BoundingPoints;
+extern vector<Point> frame0ControlPoints;
+extern Point2f frame0BoundingPointsArray[4];
+
+extern Mat frame0;
+
+extern Mat inpainted;
+extern Mat dilatedContourMask;
+extern Rect rect;
+extern Mat rectMask;
+
 DRUtil dRUtil;
 
 double get_timestamp()
@@ -16,75 +38,6 @@ double get_timestamp()
     struct timeval tv;
     gettimeofday(&tv, NULL);
     return tv.tv_sec + tv.tv_usec*1e-6;
-}
-
-vector<InpaintingResult> inpaintingTest(vector<string> imageNames, vector<Mat> images, vector<Mat> masks)
-{
-    vector<InpaintingResult> results(images.size());
-    
-    string name;
-    Mat image, mask, inpainted;
-    double start, end;
-    
-    for (int i = 0; i < images.size(); i++)
-    {
-        name  = imageNames[i];
-        
-        for (int method = 0; method < 4; method++)
-        {
-            images[i].copyTo(image);
-            masks[i].copyTo(mask);
-            
-            //image = Illumination::normalisation2(image);
-            
-            start = get_timestamp();
-            dRUtil.inpaint(image, mask, (InpaintingMethod)method).copyTo(inpainted);
-            end = get_timestamp();
-            
-            results.push_back(InpaintingResult(name, image, mask, inpainted, (InpaintingMethod)method, end-start));
-            
-            cout << "image=" << name << "; method=" << method << "; time=" << end-start << "seconds." << endl;
-            imwrite("inpaintedm"+to_string((InpaintingMethod)method)+name, inpainted);
-        }
-    }
-    
-    return results;
-}
-
-vector<InpaintingResult> runInpaintingTest()
-{
-    vector<string> imageNames{"object1.jpg", "object2.jpg", "object3.jpg"};
-    vector<string> imageNamesBound{"object1_bound.jpg", "object2_bound.jpg", "object3_bound.jpg"};
-    vector<string> maskNamesFullRect{"object1mask_full_rect.jpg", "object2mask_full_rect.jpg", "object3mask_full_rect.jpg"};
-    vector<string> maskNamesFullContour{"object1mask_full_contour.jpg", "object2mask_full_contour.jpg", "object3mask_full_contour.jpg"};
-    vector<string> maskNamesBoundContour{"object1mask_bound_contour.jpg", "object2mask_bound_contour.jpg", "object3mask_bound_contour.jpg"};
-    
-    vector<string> singleImageName{"planar.jpg"};
-    vector<string> singleMaskName{"mask.jpg"};
-    
-    vector<Mat> images, masks;
-    
-    vector<InpaintingResult> results;
-    
-    for (int i = 0; i < singleImageName.size(); i++)
-    {
-        images.push_back(imread(singleImageName[i], IMREAD_COLOR));
-        masks.push_back(imread(singleMaskName[i], IMREAD_GRAYSCALE));
-    }
-    
-    results = inpaintingTest(singleImageName, images, masks);
-    
-    return results;
-}
-
-extern "C" int EXPORT_API add(int a, int b)
-{
-    return a+b;
-}
-
-extern "C" void EXPORT_API run()
-{
-    runInpaintingTest();
 }
 
 Mat imageData2Mat(int height, int width, int channels, unsigned char imageData[])
@@ -116,9 +69,21 @@ Point getPoint(POINT2D source)
     return point;
 }
 
+Point getPoint(POINT2D source, double widthRatio, double heightRatio)
+{
+    Point point(source.x * widthRatio, source.y * heightRatio);
+    return point;
+}
+
 Point2f getPoint2f(POINT2D source)
 {
     Point2f point(source.x, source.y);
+    return point;
+}
+
+Point2f getPoint2f(POINT2D source, double widthRatio, double heightRatio)
+{
+    Point2f point(source.x * widthRatio, source.y * heightRatio);
     return point;
 }
 
@@ -147,8 +112,13 @@ void getRectMask(Mat image, vector<Point> points, Rect &rect, Mat &rectMask)
     fillConvexPoly(rectMask, ROI_Poly, Scalar(0));
 }
 
-void getContourMask(Mat image, Rect rect, Mat &contourMask)
+void getContourMask(Mat srcImage, Rect rect, Mat &contourMask)
 {
+    Mat image;
+    float kdata[] = {-1,-1,-1, -1,9,-1, -1,-1,-1};
+    Mat kernel(3,3,CV_32F, kdata);
+    filter2D(srcImage, image, -1, kernel);
+    
     Mat mask, bgdModel, fgdModel;
     grabCut( image, mask, rect, bgdModel, fgdModel, 5, GC_INIT_WITH_RECT );
     
@@ -172,7 +142,7 @@ void getContourMask(Mat image, Rect rect, Mat &contourMask)
     vector<Vec4i> hierarchy;
     findContours( mask, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
     
-    int largest_area=0;
+    double largest_area=0;
     int largest_contour_index=0;
     
     for( int i = 0; i< contours.size(); i++ ) // iterate through each contour.
@@ -186,13 +156,18 @@ void getContourMask(Mat image, Rect rect, Mat &contourMask)
     }
     
     contourMask = Mat(mask.rows, mask.cols, CV_8UC1, Scalar::all(0));
-//    drawContours( contourMask, contours,largest_contour_index, Scalar(255,255,255), CV_FILLED, 8, hierarchy );
     
-    for( int i = 0; i< contours.size(); i++ ) // iterate through each contour.
+    if (channels == 1)
     {
-        drawContours( contourMask, contours, i, Scalar(255,255,255), CV_FILLED, 8, hierarchy );
+        for( int i = 0; i< contours.size(); i++ ) // iterate through each contour.
+        {
+            drawContours( contourMask, contours, i, Scalar(255,255,255), CV_FILLED, 8, hierarchy );
+        }
     }
-
+    else
+    {
+        drawContours( contourMask, contours,largest_contour_index, Scalar(255,255,255), CV_FILLED, 8, hierarchy );
+    }
 }
 
 void dilation(Mat image, Mat &dilatedMask, int dilation_elem = 2, int dilation_size = 10)
@@ -217,12 +192,46 @@ double getProbability(double x, double mean, double stddev)
 
 void surroundingRandomisation(Mat image, Mat inpainted, Mat &output, Mat dilatedContourMask, Mat rectMask, Rect rect)
 {
+    double start, end;
+    
+    start = get_timestamp();
+    Mat mask;
+    bitwise_not(dilatedContourMask, mask);
+    
+    // find all contours
+    vector<vector<Point>> contours;
+    vector<Vec4i> hierarchy;
+    findContours( mask, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
+    
+    if (contours.size() == 0)
+    {
+        inpainted.copyTo(output);
+        return;
+    }
+    
+    double largest_area=0;
+    int largest_contour_index=0;
+    
+    for( int i = 0; i< contours.size(); i++ ) // iterate through each contour.
+    {
+        double a = contourArea(contours[i],false);  //  Find the area of contour
+        if(a > largest_area)
+        {
+            largest_area = a;
+            largest_contour_index = i;                //Store the index of largest contour
+        }
+    }
+    end = get_timestamp();
+//    freopen("debug.txt", "a", stdout);
+//    printf("contour time = %f\n", end-start);
+    
     image.copyTo(output);
     
-    Point2i centre(rect.x + rect.width / 2, rect.y + rect.height / 2);
+    vector<double> distances_raw;
     
-    vector<double> distances;
+    vector<Vec3f> distances;
     
+    start = get_timestamp();
     for (int y = rect.y; y < rect.y + rect.height; y++)
     {
         for (int x = rect.x; x < rect.x + rect.width; x++)
@@ -232,34 +241,37 @@ void surroundingRandomisation(Mat image, Mat inpainted, Mat &output, Mat dilated
             {
                 Point2i current(x, y);
                 
-                double xDistance = abs(current.x - centre.x) * 1.0 / rect.width;
-                double yDistance = abs(current.y - centre.y) * 1.0 / rect.height;
+                double distance_raw = -pointPolygonTest(contours[largest_contour_index], current, true);
                 
-                double distance = sqrt(pow(xDistance, 2) + pow(yDistance, 2));
+                distances_raw.push_back(distance_raw);
                 
-                distances.push_back(distance);
+//                distances.push_back(Vec3f(x, y, distance_raw));
             }
         }
     }
+    end = get_timestamp();
+//    freopen("debug.txt", "a", stdout);
+//    printf("distance time = %f\n", end-start);
     
-    if (distances.size() == 0)
-    {
-        inpainted.copyTo(output);
-        return;
-    }
-    
-    double min = *min_element(distances.begin(), distances.end());
-    double max = *max_element(distances.begin(), distances.end());
-    double mean = accumulate(distances.begin(), distances.end(), 0.0) / distances.size();
+    start = get_timestamp();
+    // standardise data
+    double min = *min_element(distances_raw.begin(), distances_raw.end());
+    double max = *max_element(distances_raw.begin(), distances_raw.end());
+    double mean = accumulate(distances_raw.begin(), distances_raw.end(), 0.0) / distances_raw.size();
     double stddev = 0;
     for (int i = 0; i < distances.size(); i++)
     {
-        stddev += pow(distances[i] - mean, 2);
+        stddev += pow(distances_raw[i] - mean, 2);
     }
-    stddev = sqrt(stddev / (distances.size() - 1));
-
+    stddev = sqrt(stddev / (distances_raw.size() - 1));
+    end = get_timestamp();
+//    freopen("debug.txt", "a", stdout);
+//    printf("standardise time = %f\n", end-start);
+    
     srand ((unsigned)time(NULL));
     
+    int distancesCount = 0;
+    start = get_timestamp();
     for (int y = rect.y; y < rect.y + rect.height; y++)
     {
         for (int x = rect.x; x < rect.x + rect.width; x++)
@@ -269,26 +281,23 @@ void surroundingRandomisation(Mat image, Mat inpainted, Mat &output, Mat dilated
             {
                 Point2i current(x, y);
                 
-                double xDistance = abs(current.x - centre.x) * 1.0 / rect.width;
-                double yDistance = abs(current.y - centre.y) * 1.0 / rect.height;
+                //double distance = -pointPolygonTest(contours[largest_contour_index], current, true);
                 
-                double distance = sqrt(pow(xDistance, 2) + pow(yDistance, 2));
-                
+                double distance = distances_raw[distancesCount];
+                distancesCount++;
+
                 double p = getProbability(distance, max, min);
                 
-                //                cout << p << endl;
-                
-                //                int pixel = p * 255;
-                //                output.at<Vec3b>(y, x) = Vec3b(pixel, pixel, pixel);
-                
-                if ((rand() * 1.0 / RAND_MAX) < p)
-                {
-                    //output.at<Vec3b>(y, x) = image.at<Vec3b>(y, x);
-                }
-                else
-                {
-                    output.at<Vec3b>(y, x) = inpainted.at<Vec3b>(y, x);
-                }
+                output.at<Vec3b>(y, x) = image.at<Vec3b>(y, x) * p + inpainted.at<Vec3b>(y, x) * (1 - p);
+
+//                if ((rand() * 1.0 / RAND_MAX) < p)
+//                {
+//                    //output.at<Vec3b>(y, x) = image.at<Vec3b>(y, x);
+//                }
+//                else
+//                {
+//                    output.at<Vec3b>(y, x) = inpainted.at<Vec3b>(y, x);
+//                }
             }
             // in between, use original
             else if (dilatedContourMask.at<uchar>(y, x) == 255 && rectMask.at<uchar>(y, x) == 255)
@@ -302,29 +311,16 @@ void surroundingRandomisation(Mat image, Mat inpainted, Mat &output, Mat dilated
             }
         }
     }
+    end = get_timestamp();
+//    freopen("debug.txt", "a", stdout);
+//    printf("output time = %f\n", end-start);
 }
 
-void resizeImage(Mat image, Mat &outputImage, vector<Point> points, vector<Point> &outputPoints)
+void resizeImage(Mat image, Mat &outputImage, double &widthRatio, double &heightRatio)
 {
-    int desiredWidth = 640, desiredHeight = 480;
-    
-    if (image.cols == desiredWidth && image.rows == desiredHeight)
-    {
-        image.copyTo(outputImage);
-        outputPoints = points;
-        return;
-    }
-    
-    double widthRatio  = desiredWidth * 1.0  / image.cols;
-    double heightRatio = desiredHeight * 1.0 / image.rows;
-    
-    outputPoints = vector<Point>();
-    for (int i = 0; i < points.size(); i++)
-    {
-        Point newPoint(points[i].x * widthRatio, points[i].y * heightRatio);
-        outputPoints.push_back(newPoint);
-    }
-    
+    widthRatio  = desiredWidth * 1.0  / image.cols;
+    heightRatio = desiredHeight * 1.0 / image.rows;
+        
     resize(image, outputImage, Size(desiredWidth, desiredHeight));
 }
 
@@ -339,7 +335,7 @@ extern "C" int EXPORT_API readImage(int height, int width, int channels, unsigne
     else
     {
         //imshow("show image", image);
-        imwrite("captured.jpg", image);
+//        imwrite("captured.jpg", image);
         
         return 1;
     }
@@ -352,7 +348,7 @@ extern "C" void EXPORT_API drawRect(int height, int width, int channels, unsigne
     
     rectangle(image, rect, Scalar( 255, 0, 0 ), 2, 1 );
     
-    imwrite("rect.jpg", image);
+//    imwrite("rect.jpg", image);
 }
 
 extern "C" void EXPORT_API initTracking(int height, int width, int channels, unsigned char imageData[], RECT2D bbox, int method)
@@ -379,328 +375,246 @@ extern "C" RECT2D EXPORT_API tracking(int height, int width, int channels, unsig
     return newBounding;
 }
 
-extern "C" void EXPORT_API averageInpainting(unsigned char* outputData, int height, int width, int channels, unsigned char imageData[], RECT2D bbox)
+extern "C" void EXPORT_API initParameters(int h, int w, int c, int dh, int dw, int cps, int ibs)
 {
-    Mat image = imageData2Mat(height, width, channels, imageData);
-    Rect2d rect = getRect2d(bbox);
-    
-    //Mat roi = Mat(rect.height, rect.width, image.type());
-    
-//    imshow("before", image);
-    
-    int neighbour = 3;
-    double sum = 0;
-//    for (int r = rect.y; r < rect.height + rect.y; r++)
-//    {
-//        for (int c = rect.x; c < rect.width + rect.x; c++)
-//        {
-//            sum += (int) image.at<uchar>(r, c);
-//        }
-//    }
-//
-    // top
-    for (int r = rect.y - neighbour; r < rect.y; r++) {
-        if (r > 0) {
-            for (int c = rect.x - neighbour; c < rect.x + neighbour; c++) {
-                if (c > 0 && c < width)
-                {
-                    sum += (int) image.at<uchar>(r, c);
-                }
-            }
-        }
-    }
+    height = h;
+    width = w;
+    channels = c;
+    desiredHeight = dh;
+    desiredWidth = dw;
+    controlPointSize = cps;
+    illuminationBlockSize = ibs;
+}
 
-    // bottom
-    for (int r = rect.height + rect.y; r < rect.height + rect.y + neighbour; r++) {
-        if (r > 0 && r < height) {
-            for (int c = rect.x - neighbour; c < rect.x + neighbour; c++) {
-                if (c > 0 && c < width)
-                {
-                    sum += (int) image.at<uchar>(r, c);
-                }
-            }
-        }
-    }
-
-    // left
-    for (int r = rect.y; r < rect.height + rect.y; r++) {
-        for (int c = rect.x - neighbour; c < rect.x; c++) {
-            if (c > 0)
-            {
-                sum += (int) image.at<uchar>(r, c);
-            }
-        }
-    }
-
-    // right
-    for (int r = rect.y; r < rect.height + rect.y; r++) {
-        for (int c = rect.width + rect.x; c < rect.width + rect.x + neighbour; c++) {
-            if (c > 0 && c < width)
-            {
-                sum += (int) image.at<uchar>(r, c);
-            }
-        }
-    }
-
-//    double average = sum / (rect.width * rect.height);
-    double average = sum / ((rect.width+2*neighbour) * (rect.height+2*neighbour) -
-                            (rect.width * rect.height));
-    for (int r = rect.y; r < rect.height + rect.y; r++) {
-        for (int c = rect.x; c < rect.width + rect.x; c++) {
-            image.at<uchar>(r, c) = (uchar) average;
-        }
-    }
+extern "C" void EXPORT_API tempFourPointsInpainting(unsigned char* outputData, unsigned char currentImageData[], POINT2D currentBoundingPoint2ds[], POINT2D currentControlPoint2ds[], bool useIlluminationAdaptation, bool useSurroundingRandomisation)
+{
+    Mat image = imageData2Mat(height, width, channels, currentImageData);
     
-//    imshow("middle", image);
-    
-//    rectangle(image, rect, Scalar( 255, 0, 0 ), 2, 1 );
-    
-//    imshow("after", image);
-    
-//    waitKey(0);
-    
-    //Convert from RGB to ARGB
-    Mat argb_img;
     if (channels == 1)
     {
-        cvtColor(image, argb_img, CV_GRAY2BGRA);
+        cvtColor(image, image, CV_GRAY2BGR);
+    }
+    
+    double start, end;
+    
+    double widthRatio = 1, heightRatio = 1;
+    Mat currentImage;
+    
+    start = get_timestamp();
+    resizeImage(image, currentImage, widthRatio, heightRatio);
+    end = get_timestamp();
+//    freopen("debug.txt", "a", stdout);
+//    printf("resizeImage 1 time = %f\n", end-start);
+    
+    vector<Point> currentBoundingPoints;
+    currentBoundingPoints.push_back(getPoint(currentBoundingPoint2ds[0], widthRatio, heightRatio));
+    currentBoundingPoints.push_back(getPoint(currentBoundingPoint2ds[1], widthRatio, heightRatio));
+    currentBoundingPoints.push_back(getPoint(currentBoundingPoint2ds[3], widthRatio, heightRatio));
+    currentBoundingPoints.push_back(getPoint(currentBoundingPoint2ds[2], widthRatio, heightRatio));
+    
+    Point2f currentBoundingPointsArray[4];
+    currentBoundingPointsArray[0] = getPoint2f(currentBoundingPoint2ds[0], widthRatio, heightRatio);
+    currentBoundingPointsArray[1] = getPoint2f(currentBoundingPoint2ds[1], widthRatio, heightRatio);
+    currentBoundingPointsArray[2] = getPoint2f(currentBoundingPoint2ds[3], widthRatio, heightRatio);
+    currentBoundingPointsArray[3] = getPoint2f(currentBoundingPoint2ds[2], widthRatio, heightRatio);
+    
+    for (int i = 0; i < 4; i++)
+    {
+        if (currentBoundingPoints[i].x >= desiredWidth || currentBoundingPoints[i].y >= desiredHeight
+            || currentBoundingPoints[i].x < 0 || currentBoundingPoints[i].y < 0)
+        {
+            Mat resizedImageDest;
+            resize(currentImage, resizedImageDest, Size(width, height));
+            
+            Mat argb_img;
+            cvtColor(resizedImageDest, argb_img, CV_BGR2BGRA);
+            
+            vector<Mat> bgra;
+            split(argb_img, bgra);
+            swap(bgra[0], bgra[3]);
+            swap(bgra[1], bgra[2]);
+            
+            memcpy(outputData, argb_img.data, argb_img.total() * argb_img.elemSize());
+            
+            return;
+        }
+    }
+    
+    vector<Point> currentControlPoints;
+    for (int i = 0; i < controlPointSize; i++)
+    {
+        currentControlPoints.push_back(getPoint(currentControlPoint2ds[i], widthRatio, heightRatio));
+    }
+    
+    for (int i = 0; i < controlPointSize; i++)
+    {
+        if (currentControlPoints[i].x >= desiredWidth || currentControlPoints[i].y >= desiredHeight
+            || currentControlPoints[i].x < 0 || currentControlPoints[i].y < 0)
+        {
+            currentControlPoints[i].x = -1;
+            currentControlPoints[i].y = -1;
+        }
+    }
+    
+    start = get_timestamp();
+    Mat adaptedInpainted;
+    if (useIlluminationAdaptation)
+    {
+        adaptedInpainted = Illumination::adaptation(frame0, currentImage, inpainted, rect, frame0ControlPoints, currentControlPoints);
     }
     else
     {
-        cvtColor(image, argb_img, CV_RGB2BGRA);
+        inpainted.copyTo(adaptedInpainted);
     }
+    end = get_timestamp();
+//    freopen("debug.txt", "a", stdout);
+//    printf("adaptation time = %f\n", end-start);
     
-    vector<Mat> bgra;
-    split(argb_img, bgra);
-    swap(bgra[0], bgra[3]);
-    swap(bgra[1], bgra[2]);
-    
-    memcpy(outputData, argb_img.data, argb_img.total() * argb_img.elemSize());
-}
-
-extern "C" void EXPORT_API fourPointsInpainting(unsigned char* outputData, int height, int width, int channels, unsigned char imageData[], POINT2D fourPoints[])
-{
-    Mat image = imageData2Mat(height, width, channels, imageData);
-    Point points[] = { getPoint(fourPoints[0]), getPoint(fourPoints[1]), getPoint(fourPoints[2]), getPoint(fourPoints[3]) };
-    
-    line(image, points[0], points[1], Scalar(255), 5);
-    line(image, points[1], points[3], Scalar(255), 5);
-    line(image, points[3], points[2], Scalar(255), 5);
-    line(image, points[2], points[0], Scalar(255), 5);
-    
-    //Convert from RGB to ARGB
-    Mat argb_img;
-    if (channels == 1)
-    {
-        cvtColor(image, argb_img, CV_GRAY2BGRA);
-    }
-    else
-    {
-        cvtColor(image, argb_img, CV_RGB2BGRA);
-    }
-    
-    vector<Mat> bgra;
-    split(argb_img, bgra);
-    swap(bgra[0], bgra[3]);
-    swap(bgra[1], bgra[2]);
-    
-    memcpy(outputData, argb_img.data, argb_img.total() * argb_img.elemSize());
-}
-
-extern "C" void EXPORT_API tempFourPointsInpainting(unsigned char* outputData, int height, int width, int channels, unsigned char inpaintedImageData[], unsigned char maskData[], POINT2D frame0FourPoints[], unsigned char currentImageData[], POINT2D currentFourPoints[])
-{
-    int desiredWidth = 640, desiredHeight = 480;
-    
-    Mat srcInpainted = imageData2Mat(height, width, channels, inpaintedImageData);
-    Mat srcCurrentImage = imageData2Mat(height, width, channels, currentImageData);
-    Mat srcDilatedContourMask = imageData2Mat(height, width, 1, maskData);
-    
-    if (channels == 1)
-    {
-        cvtColor(srcInpainted, srcInpainted, CV_GRAY2BGR);
-        cvtColor(srcCurrentImage, srcCurrentImage, CV_GRAY2BGR);
-    }
-    
-    vector<Point> srcCurrentPoints;
-    srcCurrentPoints.push_back(getPoint(currentFourPoints[0]));
-    srcCurrentPoints.push_back(getPoint(currentFourPoints[1]));
-    srcCurrentPoints.push_back(getPoint(currentFourPoints[3]));
-    srcCurrentPoints.push_back(getPoint(currentFourPoints[2]));
-    
-    Mat inpainted, currentImage, dilatedContourMask;
-    vector<Point> currentPoints;
-    resizeImage(srcInpainted, inpainted, srcCurrentPoints, currentPoints);
-    resizeImage(srcCurrentImage, currentImage, srcCurrentPoints, currentPoints);
-    resizeImage(srcDilatedContourMask, dilatedContourMask, srcCurrentPoints, currentPoints);
-    
-    double widthRatio  = desiredWidth * 1.0  / width;
-    double heightRatio = desiredHeight * 1.0 / height;
-    
-    Point2f frame0PointsArray[] =
-    {
-        getPoint2f(frame0FourPoints[0]),
-        getPoint2f(frame0FourPoints[1]),
-        getPoint2f(frame0FourPoints[2]),
-        getPoint2f(frame0FourPoints[3])
-    };
-    frame0PointsArray[0] = Point2f(frame0PointsArray[0].x * widthRatio, frame0PointsArray[0].y * heightRatio);
-    frame0PointsArray[1] = Point2f(frame0PointsArray[1].x * widthRatio, frame0PointsArray[1].y * heightRatio);
-    frame0PointsArray[2] = Point2f(frame0PointsArray[2].x * widthRatio, frame0PointsArray[2].y * heightRatio);
-    frame0PointsArray[3] = Point2f(frame0PointsArray[3].x * widthRatio, frame0PointsArray[3].y * heightRatio);
-    
-    Point2f currentPointsArray[] =
-    {
-        Point2f(currentPoints[0].x, currentPoints[0].y),
-        Point2f(currentPoints[1].x, currentPoints[1].y),
-        Point2f(currentPoints[3].x, currentPoints[3].y),
-        Point2f(currentPoints[2].x, currentPoints[2].y),
-    };
-    
-    Mat M = getPerspectiveTransform(frame0PointsArray, currentPointsArray);
+    start = get_timestamp();
+    Mat M = getPerspectiveTransform(frame0BoundingPointsArray, currentBoundingPointsArray);
     Mat transformedInpainted;
-    warpPerspective(inpainted, transformedInpainted, M, Size(desiredWidth, desiredHeight));
-
+    warpPerspective(adaptedInpainted, transformedInpainted, M, Size(desiredWidth, desiredHeight));
+    end = get_timestamp();
+//    freopen("debug.txt", "a", stdout);
+//    printf("warpPerspective time = %f\n", end-start);
+    
+    start = get_timestamp();
     Mat currentMask;
     currentMask.create(currentImage.size(), CV_8UC1);
     currentMask.setTo(Scalar(0));
 
     // Create Polygon from vertices
     vector<Point> currentROI_Poly;
-    approxPolyDP(currentPoints, currentROI_Poly, 1.0, true);
+    approxPolyDP(currentBoundingPoints, currentROI_Poly, 1.0, true);
     
     // Fill polygon white
     fillConvexPoly(currentMask, currentROI_Poly, Scalar(255));
 
-    Rect rect;
-    Mat rectMask;
-    getRectMask(currentImage, currentPoints, rect, rectMask);
-
-    Mat transformedDilatedContourMask;
-    warpPerspective(dilatedContourMask, transformedDilatedContourMask, M, Size(desiredWidth, desiredHeight));
-
-    Mat output;
-    surroundingRandomisation(currentImage, transformedInpainted, output, transformedDilatedContourMask, rectMask, rect);
-    
-//    transformedInpainted.copyTo(output);
-
     // Cut out ROI and store it in imageDest
     Mat imageDest;
     currentImage.copyTo(imageDest);
-    output.copyTo(imageDest, currentMask);
-
+    transformedInpainted.copyTo(imageDest, currentMask);
+    end = get_timestamp();
+//    freopen("debug.txt", "a", stdout);
+//    printf("copy time = %f\n", end-start);
+    
+    start = get_timestamp();
+    if (useSurroundingRandomisation)
+    {
+        Mat transformedDilatedContourMask;
+        warpPerspective(dilatedContourMask, transformedDilatedContourMask, M, Size(desiredWidth, desiredHeight));
+        
+        Rect transformedRect;
+        Mat transformedRectMask;
+        getRectMask(currentImage, currentBoundingPoints, transformedRect, transformedRectMask);
+        
+        Mat result;
+        surroundingRandomisation(currentImage, imageDest, result, transformedDilatedContourMask, transformedRectMask, transformedRect);
+        result.copyTo(imageDest);
+    }
+    end = get_timestamp();
+//    freopen("debug.txt", "a", stdout);
+//    printf("surroundingRandomisation time = %f\n", end-start);
+    
+    Mat resizedImageDest;
+    
+    start = get_timestamp();
+    resize(imageDest, resizedImageDest, Size(width, height));
+    end = get_timestamp();
+//    freopen("debug.txt", "a", stdout);
+//    printf("resize 2 time = %f\n", end-start);
+    
+    start = get_timestamp();
     // Convert from RGB to ARGB
     Mat argb_img;
-//    if (channels == 1)
-//    {
-//        cvtColor(imageDest, argb_img, CV_GRAY2BGRA);
-//    }
-//    else
-//    {
-        cvtColor(imageDest, argb_img, CV_BGR2BGRA);
-//    }
+    cvtColor(resizedImageDest, argb_img, CV_BGR2BGRA);
     
     vector<Mat> bgra;
     split(argb_img, bgra);
     swap(bgra[0], bgra[3]);
     swap(bgra[1], bgra[2]);
     
-    //return argb_img.data;
-    
-    resize(argb_img, argb_img, Size(width, height));
-    
     memcpy(outputData, argb_img.data, argb_img.total() * argb_img.elemSize());
+    end = get_timestamp();
+//    freopen("debug.txt", "a", stdout);
+//    printf("cvtColor time = %f\n", end-start);
 }
 
-extern "C" void EXPORT_API initFourPointsInpainting(unsigned char* resultData, unsigned char* inpaintedData, unsigned char* maskData, int height, int width, int channels, unsigned char frame0ImageData[], POINT2D frame0FourPoints[], int method, int parameter)
+extern "C" void EXPORT_API initFourPointsInpainting(unsigned char frame0ImageData[], POINT2D frame0BoundingPoint2ds[], POINT2D frame0ControlPoint2ds[], int method, int parameter, bool useSurroundingRandomisation)
 {
-    Mat srcFrame0 = imageData2Mat(height, width, channels, frame0ImageData);
+    frame0 = imageData2Mat(height, width, channels, frame0ImageData);
     
     if (channels == 1)
     {
-        cvtColor(srcFrame0, srcFrame0, CV_GRAY2BGR);
+        cvtColor(frame0, frame0, CV_GRAY2BGR);
     }
     
-    vector<Point> srcFrame0Points;
-    srcFrame0Points.push_back(getPoint(frame0FourPoints[0]));
-    srcFrame0Points.push_back(getPoint(frame0FourPoints[1]));
-    srcFrame0Points.push_back(getPoint(frame0FourPoints[3]));
-    srcFrame0Points.push_back(getPoint(frame0FourPoints[2]));
+    double widthRatio = 1, heightRatio = 1;
+    resizeImage(frame0, frame0, widthRatio, heightRatio);
     
-    Mat frame0;
-    vector<Point> frame0Points;
-    resizeImage(srcFrame0, frame0, srcFrame0Points, frame0Points);
+    frame0BoundingPoints.push_back(getPoint(frame0BoundingPoint2ds[0], widthRatio, heightRatio));
+    frame0BoundingPoints.push_back(getPoint(frame0BoundingPoint2ds[1], widthRatio, heightRatio));
+    frame0BoundingPoints.push_back(getPoint(frame0BoundingPoint2ds[3], widthRatio, heightRatio));
+    frame0BoundingPoints.push_back(getPoint(frame0BoundingPoint2ds[2], widthRatio, heightRatio));
     
-    Rect rect;
-    Mat rectMask;
-    getRectMask(frame0, frame0Points, rect, rectMask);
+    frame0BoundingPointsArray[0] = getPoint2f(frame0BoundingPoint2ds[0], widthRatio, heightRatio);
+    frame0BoundingPointsArray[1] = getPoint2f(frame0BoundingPoint2ds[1], widthRatio, heightRatio);
+    frame0BoundingPointsArray[2] = getPoint2f(frame0BoundingPoint2ds[3], widthRatio, heightRatio);
+    frame0BoundingPointsArray[3] = getPoint2f(frame0BoundingPoint2ds[2], widthRatio, heightRatio);
     
-    //imwrite("rectMask.jpg", rectMask);
+    for (int i = 0; i < controlPointSize; i++)
+    {
+        frame0ControlPoints.push_back(getPoint(frame0ControlPoint2ds[i], widthRatio, heightRatio));
+    }
+    
+    getRectMask(frame0, frame0BoundingPoints, rect, rectMask);
     
     Mat contourMask;
     getContourMask(frame0, rect, contourMask);
     
-    //imwrite("contourMask.jpg", contourMask);
-
-    Mat dilatedContourMask;
     dilation(contourMask, dilatedContourMask, 2, 20);
     
     bitwise_not(dilatedContourMask, dilatedContourMask);
     
-    //imwrite("dilatedContourMask.jpg", dilatedContourMask);
+//    imshow("rectMask", rectMask);
+//    imshow("dilatedContourMask", dilatedContourMask);
     
-    DRUtil dRUtil;
-    Mat inpainted = dRUtil.inpaint(frame0, rectMask, (InpaintingMethod)method, parameter);
-    
-    //imwrite("inpainted.jpg", inpainted);
-
-//    Mat result;
-//    surroundingRandomisation(frame0, inpainted, result, dilatedContourMask, rectMask, rect);
-    
-    if (channels == 1)
+    if (((InpaintingMethod)method) == InpaintingMethod::INPAINTING_EXEMPLAR)
     {
-//        cvtColor(result, result, CV_BGR2GRAY);
-        cvtColor(inpainted, inpainted, CV_BGR2GRAY);
+        Mat sourceMask;
+        sourceMask.create(frame0.size(), CV_8UC1);
+        sourceMask.setTo(Scalar(0));
+        
+        for (int row = rect.y - 50; row < rect.y + rect.height + 50; row++)
+        {
+            for (int col = rect.x - 50; col < rect.x + rect.width + 50; col++)
+            {
+                if (row >= 0 && row < sourceMask.rows && col >= 0 && col < sourceMask.cols)
+                {
+                    if (!(row >= rect.y && row <= rect.y + rect.height && col >= rect.x && col <= rect.x + rect.width))
+                    {
+                        sourceMask.at<uchar>(row, col) = 255;
+                    }
+                }
+            }
+        }
+        
+        inpainted = Inpainter::exemplarInpainting(frame0, rectMask, sourceMask, parameter);
+    }
+    else
+    {
+        DRUtil dRUtil;
+        inpainted = dRUtil.inpaint(frame0, rectMask, (InpaintingMethod)method, parameter);
     }
     
-    resize(inpainted, inpainted, Size(width, height));
-    resize(dilatedContourMask, dilatedContourMask, Size(width, height));
+    if (useSurroundingRandomisation)
+    {
+        Mat result;
+        surroundingRandomisation(frame0, inpainted, result, dilatedContourMask, rectMask, rect);
+        result.copyTo(inpainted);
+    }
     
-//    memcpy(resultData, result.data, result.total() * result.elemSize());
-    memcpy(inpaintedData, inpainted.data, inpainted.total() * inpainted.elemSize());
-    memcpy(maskData, dilatedContourMask.data, dilatedContourMask.total() * dilatedContourMask.elemSize());
+//    imshow("inpainted", inpainted);
     
-//    return output.data;
-    
-//    Mat frame0Mask;
-//    frame0Mask.create(frame0.size(), CV_8UC1);
-//    frame0Mask.setTo(Scalar(255));
-//
-//    // Create Polygon from vertices
-//    vector<Point> frame0ROI_Poly;
-//    approxPolyDP(frame0Points, frame0ROI_Poly, 1.0, true);
-//
-//    // Fill polygon white
-//    fillConvexPoly(frame0Mask, frame0ROI_Poly, Scalar(0));
-//
-//    Mat inpainted;
-//
-//    if (channels == 1)
-//    {
-//        cvtColor(frame0, inpainted, CV_GRAY2BGR);
-//    }
-//    else
-//    {
-//        frame0.copyTo(inpainted);
-//    }
-//
-//    DRUtil dRUtil;
-//    inpainted = dRUtil.inpaint(inpainted, frame0Mask, (InpaintingMethod)method);
-//
-//    if (channels == 1)
-//    {
-//        cvtColor(inpainted, inpainted, CV_BGR2GRAY);
-//    }
-//
-//    return inpainted.data;
-    //memcpy(outputData, inpainted.data, inpainted.total() * inpainted.elemSize());
+    Illumination::initAdaptation();
 }

@@ -15,7 +15,6 @@
 #define EXPORT_API
 #endif
 
-
 #include <iostream>
 #include <vector>
 #include <sys/time.h>
@@ -39,3 +38,4 @@ struct POINT2D {
     int x;
     int y;
 };
+

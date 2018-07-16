@@ -11,18 +11,20 @@
 
 #include <opencv2/opencv.hpp>
 #include "inpainter.hpp"
+#include <sys/time.h>
 
 using namespace cv;
 using namespace std;
 
 namespace Illumination
 {
-    uchar medianMat(Mat Input);
-    uchar averageMat(Mat input);
-    Mat getMedian(Mat image, Mat mask, int neighbourSize);
+    double get_timestamp();
+    
     Mat normalisation(Mat image, Mat mask);
-    Mat normalisation2(Mat image);
     Mat compensation(Mat source, Mat inpainted, Mat mask);
-}
+    void initAdaptation();
+    Mat adaptation(Mat frame0, Mat current, Mat inpainted, Rect bbox, vector<Point> frame0ControlPoints, vector<Point> currentControlPoints);
+};
 
 #endif /* illumination_hpp */
+
