@@ -31,6 +31,12 @@ extern Mat dilatedContourMask;
 extern Rect rect;
 extern Mat rectMask;
 
+extern Mat surroundingRandomisationDistances;
+extern Mat transformedSurroundingRandomisationDistances;
+
+extern double surroundingRandomisationMax;
+extern double surroundingRandomisationMin;
+
 DRUtil dRUtil;
 
 double get_timestamp()
@@ -179,59 +185,79 @@ void dilation(Mat image, Mat &dilatedMask, int dilation_elem = 2, int dilation_s
     dilate( image, dilatedMask, element );
 }
 
+double phi(double x)
+{
+    // constants
+    double a1 =  0.254829592;
+    double a2 = -0.284496736;
+    double a3 =  1.421413741;
+    double a4 = -1.453152027;
+    double a5 =  1.061405429;
+    double p  =  0.3275911;
+    
+    // Save the sign of x
+    int sign = 1;
+    if (x < 0)
+        sign = -1;
+    x = fabs(x)/sqrt(2.0);
+    
+    // A&S formula 7.1.26
+    double t = 1.0/(1.0 + p*x);
+    double y = 1.0 - (((((a5*t + a4)*t) + a3)*t + a2)*t + a1)*t*exp(-x*x);
+    
+    return 0.5*(1.0 + sign*y);
+}
+
+double normalCFD(double value)
+{
+    return 0.5 * erfc(-value * M_SQRT1_2);
+}
+
 double getProbability(double x, double mean, double stddev)
 {
     //    double p = exp(-pow(x - mean, 2) / (2 * pow(stddev, 2))) / (stddev * sqrt(2 * M_PI));
+    double p = phi(x);
     
-    double max = mean;
-    double min = stddev;
-    double p = (x - min) * 1.0 / (max - min);
+//    double max = mean;
+//    double min = stddev;
+//    double p = (x - min) * 1.0 / (max - min);
     
     return p;
 }
 
-void surroundingRandomisation(Mat image, Mat inpainted, Mat &output, Mat dilatedContourMask, Mat rectMask, Rect rect)
+void initSurroundingRandomisation(Mat image, Mat inpainted, Mat dilatedContourMask, Mat rectMask, Rect rect)
 {
-    double start, end;
-    
-    start = get_timestamp();
     Mat mask;
     bitwise_not(dilatedContourMask, mask);
     
     // find all contours
     vector<vector<Point>> contours;
     vector<Vec4i> hierarchy;
-    findContours( mask, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
+    findContours( mask, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE );
     
     if (contours.size() == 0)
     {
-        inpainted.copyTo(output);
         return;
     }
     
-    double largest_area=0;
-    int largest_contour_index=0;
+    double largestArea = 0;
+    int largestContourIndex = 0;
     
     for( int i = 0; i< contours.size(); i++ ) // iterate through each contour.
     {
         double a = contourArea(contours[i],false);  //  Find the area of contour
-        if(a > largest_area)
+        if(a > largestArea)
         {
-            largest_area = a;
-            largest_contour_index = i;                //Store the index of largest contour
+            largestArea = a;
+            largestContourIndex = i;                //Store the index of largest contour
         }
     }
-    end = get_timestamp();
-//    freopen("debug.txt", "a", stdout);
-//    printf("contour time = %f\n", end-start);
     
-    image.copyTo(output);
+    surroundingRandomisationDistances.create(image.size(), CV_32FC1);
+    surroundingRandomisationDistances.setTo(Scalar(1024));
     
-    vector<double> distances_raw;
+    vector<float> distances_raw;
     
-    vector<Vec3f> distances;
-    
-    start = get_timestamp();
     for (int y = rect.y; y < rect.y + rect.height; y++)
     {
         for (int x = rect.x; x < rect.x + rect.width; x++)
@@ -239,38 +265,55 @@ void surroundingRandomisation(Mat image, Mat inpainted, Mat &output, Mat dilated
             // in surrounding
             if (dilatedContourMask.at<uchar>(y, x) == 255 && rectMask.at<uchar>(y, x) == 0)
             {
-                Point2i current(x, y);
+                Point2f current(x, y);
                 
-                double distance_raw = -pointPolygonTest(contours[largest_contour_index], current, true);
+                float distance = -pointPolygonTest( contours[largestContourIndex], current, true );
                 
-                distances_raw.push_back(distance_raw);
+                surroundingRandomisationDistances.at<float>(y, x) = distance;
                 
-//                distances.push_back(Vec3f(x, y, distance_raw));
+                distances_raw.push_back(distance);
             }
         }
     }
-    end = get_timestamp();
-//    freopen("debug.txt", "a", stdout);
-//    printf("distance time = %f\n", end-start);
     
-    start = get_timestamp();
     // standardise data
-    double min = *min_element(distances_raw.begin(), distances_raw.end());
-    double max = *max_element(distances_raw.begin(), distances_raw.end());
-    double mean = accumulate(distances_raw.begin(), distances_raw.end(), 0.0) / distances_raw.size();
-    double stddev = 0;
-    for (int i = 0; i < distances.size(); i++)
+    surroundingRandomisationMin = *min_element(distances_raw.begin(), distances_raw.end());
+    surroundingRandomisationMax = *max_element(distances_raw.begin(), distances_raw.end());
+    double meanVal = accumulate(distances_raw.begin(), distances_raw.end(), 0.0) / distances_raw.size();
+    double stddevVal = 0;
+    for (int i = 0; i < distances_raw.size(); i++)
     {
-        stddev += pow(distances_raw[i] - mean, 2);
+        stddevVal += pow(distances_raw[i] - meanVal, 2);
     }
-    stddev = sqrt(stddev / (distances_raw.size() - 1));
-    end = get_timestamp();
-//    freopen("debug.txt", "a", stdout);
-//    printf("standardise time = %f\n", end-start);
+    stddevVal = sqrt(stddevVal / (distances_raw.size() - 1));
     
-    srand ((unsigned)time(NULL));
+    for (int y = rect.y; y < rect.y + rect.height; y++)
+    {
+        for (int x = rect.x; x < rect.x + rect.width; x++)
+        {
+            // in surrounding
+            if (dilatedContourMask.at<uchar>(y, x) == 255 && rectMask.at<uchar>(y, x) == 0)
+            {
+                float distance = surroundingRandomisationDistances.at<float>(y, x);
+                
+                distance = (distance - meanVal) / stddevVal;
+                
+                surroundingRandomisationDistances.at<float>(y, x) = distance;
+            }
+        }
+    }
     
-    int distancesCount = 0;
+//    minMaxLoc( surroundingRandomisationDistances, &surroundingRandomisationMin, &surroundingRandomisationMax, 0, 0, Mat() );
+
+//    float meanVal = mean(surroundingRandomisationDistances)[0];
+}
+
+void surroundingRandomisation(Mat image, Mat inpainted, Mat &output, Mat dilatedContourMask, Mat rectMask, Rect rect)
+{
+    double start, end;
+    
+    image.copyTo(output);
+    
     start = get_timestamp();
     for (int y = rect.y; y < rect.y + rect.height; y++)
     {
@@ -279,25 +322,13 @@ void surroundingRandomisation(Mat image, Mat inpainted, Mat &output, Mat dilated
             // in surrounding, do randomisation
             if (dilatedContourMask.at<uchar>(y, x) == 255 && rectMask.at<uchar>(y, x) == 0)
             {
-                Point2i current(x, y);
+                float distance = transformedSurroundingRandomisationDistances.at<float>(y, x);
                 
-                //double distance = -pointPolygonTest(contours[largest_contour_index], current, true);
+                double p = getProbability(distance, 0, 0);
                 
-                double distance = distances_raw[distancesCount];
-                distancesCount++;
-
-                double p = getProbability(distance, max, min);
+//                p = p + (p - 0.5) / 2;
                 
                 output.at<Vec3b>(y, x) = image.at<Vec3b>(y, x) * p + inpainted.at<Vec3b>(y, x) * (1 - p);
-
-//                if ((rand() * 1.0 / RAND_MAX) < p)
-//                {
-//                    //output.at<Vec3b>(y, x) = image.at<Vec3b>(y, x);
-//                }
-//                else
-//                {
-//                    output.at<Vec3b>(y, x) = inpainted.at<Vec3b>(y, x);
-//                }
             }
             // in between, use original
             else if (dilatedContourMask.at<uchar>(y, x) == 255 && rectMask.at<uchar>(y, x) == 255)
@@ -508,6 +539,8 @@ extern "C" void EXPORT_API tempFourPointsInpainting(unsigned char* outputData, u
         Mat transformedRectMask;
         getRectMask(currentImage, currentBoundingPoints, transformedRect, transformedRectMask);
         
+        warpPerspective(surroundingRandomisationDistances, transformedSurroundingRandomisationDistances, M, Size(desiredWidth, desiredHeight));
+        
         Mat result;
         surroundingRandomisation(currentImage, imageDest, result, transformedDilatedContourMask, transformedRectMask, transformedRect);
         result.copyTo(imageDest);
@@ -540,7 +573,7 @@ extern "C" void EXPORT_API tempFourPointsInpainting(unsigned char* outputData, u
 //    printf("cvtColor time = %f\n", end-start);
 }
 
-extern "C" void EXPORT_API initFourPointsInpainting(unsigned char frame0ImageData[], POINT2D frame0BoundingPoint2ds[], POINT2D frame0ControlPoint2ds[], int method, int parameter, bool useSurroundingRandomisation)
+extern "C" void EXPORT_API initFourPointsInpainting(unsigned char frame0ImageData[], POINT2D frame0BoundingPoint2ds[], POINT2D frame0ControlPoint2ds[], int method, int parameter, bool useNormalisation)
 {
     frame0 = imageData2Mat(height, width, channels, frame0ImageData);
     
@@ -572,12 +605,30 @@ extern "C" void EXPORT_API initFourPointsInpainting(unsigned char frame0ImageDat
     Mat contourMask;
     getContourMask(frame0, rect, contourMask);
     
-    dilation(contourMask, dilatedContourMask, 2, 20);
+    if (channels == 1)
+    {
+        dilation(contourMask, dilatedContourMask, 2, 20);
+    }
+    else
+    {
+        dilation(contourMask, dilatedContourMask, 2, 10);
+    }
     
     bitwise_not(dilatedContourMask, dilatedContourMask);
     
-//    imshow("rectMask", rectMask);
-//    imshow("dilatedContourMask", dilatedContourMask);
+//    imshow("input", frame0);
+    
+    Mat normalisedFrame0;
+    if (channels == 3 && useNormalisation)
+    {
+        normalisedFrame0 = Illumination::normalisation(frame0, rectMask);
+    }
+    else
+    {
+        frame0.copyTo(normalisedFrame0);
+    }
+
+//    imshow("normalisedFrame0", normalisedFrame0);
     
     if (((InpaintingMethod)method) == InpaintingMethod::INPAINTING_EXEMPLAR)
     {
@@ -599,22 +650,26 @@ extern "C" void EXPORT_API initFourPointsInpainting(unsigned char frame0ImageDat
             }
         }
         
-        inpainted = Inpainter::exemplarInpainting(frame0, rectMask, sourceMask, parameter);
+        inpainted = Inpainter::exemplarInpainting(normalisedFrame0, rectMask, sourceMask, parameter);
     }
     else
     {
         DRUtil dRUtil;
-        inpainted = dRUtil.inpaint(frame0, rectMask, (InpaintingMethod)method, parameter);
-    }
-    
-    if (useSurroundingRandomisation)
-    {
-        Mat result;
-        surroundingRandomisation(frame0, inpainted, result, dilatedContourMask, rectMask, rect);
-        result.copyTo(inpainted);
+        inpainted = dRUtil.inpaint(normalisedFrame0, rectMask, (InpaintingMethod)method, parameter);
     }
     
 //    imshow("inpainted", inpainted);
     
+    initSurroundingRandomisation(frame0, inpainted, dilatedContourMask, rectMask, rect);
+    
     Illumination::initAdaptation();
+    
+    if (channels != 1 && useNormalisation)
+    {
+        Mat adapted = Illumination::adaptation(normalisedFrame0, frame0, inpainted, rect, frame0ControlPoints, frame0ControlPoints);
+        
+        //    imshow("adapted", adapted);
+        
+        adapted.copyTo(inpainted);
+    }
 }

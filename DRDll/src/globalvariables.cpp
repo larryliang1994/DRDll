@@ -29,3 +29,9 @@ Mat inpainted;
 Mat dilatedContourMask;
 Rect rect;
 Mat rectMask;
+
+Mat surroundingRandomisationDistances;
+Mat transformedSurroundingRandomisationDistances;
+
+double surroundingRandomisationMax;
+double surroundingRandomisationMin;

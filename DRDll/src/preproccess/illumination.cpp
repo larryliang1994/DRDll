@@ -17,12 +17,14 @@ extern Mat rectMask;
 extern vector<Point> frame0ControlPoints;
 extern int controlPointSize;
 
-vector<uchar> frame0ControlPointsMedian;
-Mat frame0Y;
-Mat inpaintedY;
+vector<Vec3i> frame0ControlPointsMedian;
+//Mat frame0Y;
+//Mat inpaintedY;
 vector<Mat> inpainted_planes(3);
 
 vector<vector<int>> eightControlPointsMapping;
+
+Mat inpaintedYUV;
 
 double Illumination::get_timestamp()
 {
@@ -67,18 +69,20 @@ uchar medianMat(Mat input)
 
 uchar averageMat(Mat input)
 {
-    int sum = 0;
-    for (int i = 0; i < input.rows; i++)
-    {
-        for (int j = 0; j < input.cols; j++)
-        {
-            sum += (int)input.at<uchar>(i, j);
-        }
-    }
+//    int sum = 0;
+//    for (int i = 0; i < input.rows; i++)
+//    {
+//        for (int j = 0; j < input.cols; j++)
+//        {
+//            sum += (int)input.at<uchar>(i, j);
+//        }
+//    }
+//
+//    int average = (int)(1.0 * sum / (input.rows * input.cols));
     
-    int average = (int)(1.0 * sum / (input.rows * input.cols));
+    return mean(input).val[0];
     
-    return (uchar)average;
+    //return (uchar)average;
 }
 
 Mat getMedian(Mat image, Mat mask, int blockSize)
@@ -115,47 +119,106 @@ Mat Illumination::normalisation(Mat image, Mat mask)
 {
     // The illumination normalization is carried out in the YUV color space.
     // The size of the median block should be large enough to represent global illumination.
-    Mat output;
+    Mat sourceYUV;
+    cvtColor(image, sourceYUV, CV_BGR2YUV);
     
-    Mat source;
-    cvtColor(image, source, CV_BGR2YUV);
+    Mat medianYUV;
+    medianBlur(sourceYUV, medianYUV, 31);
     
-    Mat median;
-//        median = getMedian(source, mask, 21);
+    Mat inter;
+    cvtColor(medianYUV, inter, CV_YUV2BGR);
     
-    medianBlur(source, median, 21);
+//    imshow("medianBGR", inter);
     
-    vector<Mat> source_planes(3);
-    split(source, source_planes);
-    
-    vector<Mat> median_planes(1);
-    split(median, median_planes);
+    sourceYUV.convertTo(sourceYUV, CV_16S);
+    medianYUV.convertTo(medianYUV, CV_16S);
     
     vector<Mat> output_planes(3);
     
-    source_planes[0].convertTo(source_planes[0], CV_16S);
-    median_planes[0].convertTo(median_planes[0], CV_16S);
+    vector<Mat> source_planes(3);
+    split(sourceYUV, source_planes);
+    
+    vector<Mat> median_planes(3);
+    split(medianYUV, median_planes);
     
     output_planes[0] = source_planes[0] - median_planes[0] + mean(median_planes[0]).val[0];
+    output_planes[1] = source_planes[1] - median_planes[1] + mean(median_planes[1]).val[0];
+    output_planes[2] = source_planes[2] - median_planes[2] + mean(median_planes[2]).val[0];
+    
+    // normalise to 0-255
+    double minY, maxY;
+    double minY_, maxY_;
+    double aY, bY;
+    
+    // Y
+    minMaxLoc(output_planes[0], &minY, &maxY);
+    minMaxLoc(source_planes[0], &minY_, &maxY_);
+    
+    aY = (maxY_ - minY_) / (maxY - minY);
+    bY = minY_ - aY * minY;
+    
+    output_planes[0].convertTo(output_planes[0], CV_8U, aY, bY);
+    
+//    freopen("debug.txt", "a", stdout);
+//    printf("minY = %f, maxY = %f, minY_ = %f, maxY_ = %f\n", minY, maxY, minY_, maxY_);
+    
+    // U
+    double minU, maxU;
+    double minU_, maxU_;
+    double aU, bU;
+    
+    minMaxLoc(output_planes[1], &minU, &maxU);
+    minMaxLoc(source_planes[1], &minU_, &maxU_);
+    
+    aU = (maxU_ - minU_) / (maxU - minU);
+    bU = minU_ - aU * minU;
+    
+    output_planes[1].convertTo(output_planes[1], CV_8U, aU, bU);
+    
+//    freopen("debug.txt", "a", stdout);
+//    printf("minU = %f, maxU = %f, minU_ = %f, maxU_ = %f\n", minU, maxU, minU_, maxU_);
+    
+    // V
+    double minV, maxV;
+    double minV_, maxV_;
+    double aV, bV;
+    
+    minMaxLoc(output_planes[2], &minV, &maxV);
+    minMaxLoc(source_planes[2], &minV_, &maxV_);
+    
+    aV = (maxV_ - minV_) / (maxV - minV);
+    bV = minV_ - aV * minV;
+    
+    output_planes[2].convertTo(output_planes[2], CV_8U, aV, bV);
+    
+//    freopen("debug.txt", "a", stdout);
+//    printf("minV = %f, maxV = %f, minV_ = %f, maxV_ = %f\n", minV, maxV, minV_, maxV_);
+    
+    Mat output;
+    merge(output_planes, output);
+    
+//    output.convertTo(output, CV_8U);
+    
+//    output_planes[0] = source_planes[0] - median_planes[0] + mean(median_planes[0]).val[0];
     
     //        cout << mean(median_planes[0]).val[0] << endl;
     
     // normalise to 0-255
-    double min, max;
-    minMaxLoc(output_planes[0], &min, &max);
-    
-    double min_, max_;
-    minMaxLoc(source_planes[0], &min_, &max_);
-    
-    double a = (max_ - min_) / (max - min);
-    double b = min_ - a * min;
-    
-    output_planes[0].convertTo(output_planes[0], CV_8U, a, b);
-    
-    output_planes[1] = source_planes[1];// - median_planes[1] + mean(median).val[1];
-    output_planes[2] = source_planes[2];// - median_planes[2] + mean(median).val[2];
-    
-    merge(output_planes, output);
+//    double min, max;
+//    minMaxLoc(output_planes[0], &min, &max);
+//
+//    double min_, max_;
+//    minMaxLoc(source_planes[0], &min_, &max_);
+//
+//    double a = (max_ - min_) / (max - min);
+//    double b = min_ - a * min;
+//
+//    output_planes[0].convertTo(output_planes[0], CV_8U, a, b);
+//
+//    output_planes[1] = source_planes[1];// - median_planes[1] + mean(median).val[1];
+//    output_planes[2] = source_planes[2];// - median_planes[2] + mean(median).val[2];
+//
+//    merge(output_planes, output);
     cvtColor(output, output, CV_YUV2BGR);
     
     //        imshow("output", output);
@@ -167,14 +230,15 @@ Mat Illumination::normalisation(Mat image, Mat mask)
 
 void Illumination::initAdaptation()
 {
-    Mat inpaintedYUV;
     cvtColor(inpainted, inpaintedYUV, CV_BGR2YUV);
     split(inpaintedYUV, inpainted_planes);
-    inpaintedY = inpainted_planes[0];
+//    inpaintedY = inpainted_planes[0];
     
     Mat frame0YUV;
     cvtColor(frame0, frame0YUV, CV_BGR2YUV);
-    extractChannel(frame0YUV, frame0Y, 0);
+    vector<Mat> frame0_planes;
+    split(frame0YUV, frame0_planes);
+//    extractChannel(frame0YUV, frame0Y, 0);
     
     // calculate Median of each control points block M(ci)
     for (int i = 0; i < frame0ControlPoints.size(); i++)
@@ -186,20 +250,22 @@ void Illumination::initAdaptation()
         if (y < 0) { y = 0; }
         
         int regionSizeWidth = illuminationBlockSize;
-        if (x + illuminationBlockSize >= frame0Y.cols)
+        if (x + illuminationBlockSize >= frame0YUV.cols)
         {
-            regionSizeWidth = frame0Y.cols - x;
+            regionSizeWidth = frame0YUV.cols - x;
         }
         
         int regionSizeHeight = illuminationBlockSize;
-        if (y + illuminationBlockSize >= frame0Y.rows)
+        if (y + illuminationBlockSize >= frame0YUV.rows)
         {
-            regionSizeHeight = frame0Y.rows - y;
+            regionSizeHeight = frame0YUV.rows - y;
         }
         
-        Mat input = frame0Y(Rect(x, y, regionSizeWidth, regionSizeHeight));
+        Mat inputY = (frame0_planes[0])(Rect(x, y, regionSizeWidth, regionSizeHeight));
+        Mat inputU = (frame0_planes[1])(Rect(x, y, regionSizeWidth, regionSizeHeight));
+        Mat inputV = (frame0_planes[2])(Rect(x, y, regionSizeWidth, regionSizeHeight));
         
-        frame0ControlPointsMedian.push_back(medianMat(input));
+        frame0ControlPointsMedian.push_back(Vec3i(medianMat(inputY), medianMat(inputU), medianMat(inputV)));
     }
 
     // calculate the mapping of a point in roi to eight control points index
@@ -408,17 +474,22 @@ Mat Illumination::adaptation(Mat frame0, Mat current, Mat inpainted, Rect bbox, 
     // extract Y channel
     Mat currentYUV;
     cvtColor(current, currentYUV, CV_BGR2YUV);
-    Mat currentY;
-    extractChannel(currentYUV, currentY, 0);
+//    Mat currentY;
+    vector<Mat> current_planes;
+    split(currentYUV, current_planes);
+//    extractChannel(currentYUV, currentY, 0);
     
-    Mat outputY;
-    inpaintedY.copyTo(outputY);
+    Mat outputYUV;
+    inpaintedYUV.copyTo(outputYUV);
+    
+//    Mat outputY;
+//    inpaintedY.copyTo(outputY);
     end = get_timestamp();
 //    freopen("debug.txt", "a", stdout);
 //    printf("copy time = %f\n", end-start);
     
     // calculate Median of each control points block M(ci)
-    vector<uchar> currentControlPointsMedian;
+    vector<Vec3i> currentControlPointsMedian;
     
     start = get_timestamp();
     for (int i = 0; i < currentControlPoints.size(); i++)
@@ -436,20 +507,26 @@ Mat Illumination::adaptation(Mat frame0, Mat current, Mat inpainted, Rect bbox, 
         if (y < 0) { y = 0; }
         
         int regionSizeWidth = illuminationBlockSize;
-        if (x + illuminationBlockSize >= currentY.cols)
+        if (x + illuminationBlockSize >= currentYUV.cols)
         {
-            regionSizeWidth = currentY.cols - x;
+            regionSizeWidth = currentYUV.cols - x;
         }
         
         int regionSizeHeight = illuminationBlockSize;
-        if (y + illuminationBlockSize >= currentY.rows)
+        if (y + illuminationBlockSize >= currentYUV.rows)
         {
-            regionSizeHeight = currentY.rows - y;
+            regionSizeHeight = currentYUV.rows - y;
         }
         
-        Mat input = currentY(Rect(x, y, regionSizeWidth, regionSizeHeight));
+//        Mat input = currentY(Rect(x, y, regionSizeWidth, regionSizeHeight));
+//
+//        currentControlPointsMedian.push_back(medianMat(input));
         
-        currentControlPointsMedian.push_back(medianMat(input));
+        Mat inputY = (current_planes[0])(Rect(x, y, regionSizeWidth, regionSizeHeight));
+        Mat inputU = (current_planes[1])(Rect(x, y, regionSizeWidth, regionSizeHeight));
+        Mat inputV = (current_planes[2])(Rect(x, y, regionSizeWidth, regionSizeHeight));
+        
+        currentControlPointsMedian.push_back(Vec3i(medianMat(inputY), medianMat(inputU), medianMat(inputV)));
     }
     end = get_timestamp();
 //    freopen("debug.txt", "a", stdout);
@@ -460,6 +537,7 @@ Mat Illumination::adaptation(Mat frame0, Mat current, Mat inpainted, Rect bbox, 
     start = get_timestamp();
     // Ix = (sum((x - ci)^-4) * Ici) / (sum((x - ci)^-4))
     // Ici = Mcurrent - Mframe0
+    freopen("debug.txt", "a", stdout);
     for (int row = bbox.y; row < bbox.y + bbox.height; row++)
     {
         for (int col = bbox.x; col < bbox.x + bbox.width; col++)
@@ -469,8 +547,8 @@ Mat Illumination::adaptation(Mat frame0, Mat current, Mat inpainted, Rect bbox, 
                 // for a point
                 Point currentPoint = Point(col, row);
                 
-                double Ix = 0;
-                double numerator = 0;
+                double IxY = 0, IxU = 0, IxV = 0;
+                double numeratorY = 0, numeratorU = 0, numeratorV = 0;
                 double denominator = 0;
                 
                 double normResult = 0;
@@ -489,29 +567,55 @@ Mat Illumination::adaptation(Mat frame0, Mat current, Mat inpainted, Rect bbox, 
                         continue;
                     }
                     
-                    normResult = norm(currentPoint-currentControlPoints[index]);
+                    if (frame0ControlPointsMedian[index][0] < 0 || frame0ControlPointsMedian[index][0] > 255
+                        || frame0ControlPointsMedian[index][1] < 0 || frame0ControlPointsMedian[index][1] > 255
+                        || frame0ControlPointsMedian[index][2] < 0 || frame0ControlPointsMedian[index][2] > 255)
+                    {
+                        printf("frame0ControlPointsMedian %d = %d %d %d\n", index,
+                               frame0ControlPointsMedian[index][0], frame0ControlPointsMedian[index][1], frame0ControlPointsMedian[index][2]);
+                        continue;
+                    }
+                    
+                    if (currentControlPointsMedian[index][0] < 0 || currentControlPointsMedian[index][0] > 255
+                        || currentControlPointsMedian[index][1] < 0 || currentControlPointsMedian[index][1] > 255
+                        || currentControlPointsMedian[index][2] < 0 || currentControlPointsMedian[index][2] > 255)
+                    {
+                        printf("currentControlPointsMedian %d = %d %d %d\n", index,
+                               currentControlPointsMedian[index][0], currentControlPointsMedian[index][1], currentControlPointsMedian[index][2]);
+                        continue;
+                    }
+                    
+                    
+                    normResult = norm(currentPoint - currentControlPoints[index]);
                     normPowResult = 1.0 / (normResult * normResult * normResult * normResult);
                     
                     // pow is too slow
-                    //denominator += pow(normResult, -4);
+                    // denominator += pow(normResult, -4);
                     denominator += normPowResult;
                     
-                    int Ici = currentControlPointsMedian[index] - frame0ControlPointsMedian[index];
+                    Vec3i Ici = currentControlPointsMedian[index] - frame0ControlPointsMedian[index];
+//                    printf("Ici = %d, %d, %d\n", Ici[0], Ici[1], Ici[2]);
                     
-                    //numerator += (pow(normResult, -4) * Ici);
-                    numerator += normPowResult * Ici;
+                    // numerator += (pow(normResult, -4) * Ici);
+                    numeratorY += normPowResult * Ici[0];
+                    numeratorU += normPowResult * Ici[1];
+                    numeratorV += normPowResult * Ici[2];
                 }
                 
-                if (numerator == 0 || denominator == 0)
+                if (denominator == 0)
                 {
-                    Ix = 0;
+                    IxY = 0;
+                    IxU = 0;
+                    IxV = 0;
                 }
                 else
                 {
-                    Ix = numerator / denominator;
+                    IxY = numeratorY / denominator;
+                    IxU = numeratorU / denominator;
+                    IxV = numeratorV / denominator;
                 }
                 
-                outputY.at<uchar>(row, col) = inpaintedY.at<uchar>(row, col) + Ix;
+                outputYUV.at<Vec3b>(row, col) = (Vec3b)((Vec3f)inpaintedYUV.at<Vec3b>(row, col) + Vec3f(IxY, IxU, IxV));
             }
         }
     }
@@ -522,14 +626,14 @@ Mat Illumination::adaptation(Mat frame0, Mat current, Mat inpainted, Rect bbox, 
     start = get_timestamp();
     // merge back
     Mat output;
-    vector<Mat> output_planes(3);
-    output_planes[0] = outputY;
-    output_planes[1] = inpainted_planes[1];
-    output_planes[2] = inpainted_planes[2];
+//    vector<Mat> output_planes(3);
+//    output_planes[0] = outputY;
+//    output_planes[1] = inpainted_planes[1];
+//    output_planes[2] = inpainted_planes[2];
     
-    merge(output_planes, output);
+//    merge(output_planes, output);
     
-    cvtColor(output, output, CV_YUV2BGR);
+    cvtColor(outputYUV, output, CV_YUV2BGR);
     end = get_timestamp();
 //    freopen("debug.txt", "a", stdout);
 //    printf("merge time = %f\n", end-start);
