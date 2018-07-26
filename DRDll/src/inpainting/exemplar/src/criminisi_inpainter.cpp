@@ -153,33 +153,19 @@ namespace Inpaint {
 
     void CriminisiInpainter::step()
     {
-        double start, end;
-        
-        start = get_timestamp();
-	    // We also need an updated knowledge of gradients in the border region
+        // We also need an updated knowledge of gradients in the border region
 	    updateFillFront();
-        end = get_timestamp();
-        time1 = time1 + end - start;
-	
-        start = get_timestamp();
-	    // Next, we need to select the best target patch on the boundary to be inpainted.
+        
+        // Next, we need to select the best target patch on the boundary to be inpainted.
 	    cv::Point targetPatchLocation = findTargetPatchLocation();
-        end = get_timestamp();
-        time2 = time2 + end - start;
-
-        start = get_timestamp();
-	    // Determine the best matching source patch from which to inpaint.
+        
+        // Determine the best matching source patch from which to inpaint.
 	    cv::Point sourcePatchLocation = findSourcePatchLocation(targetPatchLocation, true);
         if (sourcePatchLocation.x == -1)
             sourcePatchLocation = findSourcePatchLocation(targetPatchLocation, false);
-        end = get_timestamp();
-        time3 = time3 + end - start;
-
-        start = get_timestamp();
-	    // Copy values
+        
+        // Copy values
 	    propagatePatch(targetPatchLocation, sourcePatchLocation);
-        end = get_timestamp();
-        time4 = time4 + end - start;
     }
 
     void CriminisiInpainter::updateFillFront()

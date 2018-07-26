@@ -147,20 +147,7 @@ void getContourMask(Mat srcImage, Rect rect, Mat &contourMask)
     vector<vector<Point>> contours;
     vector<Vec4i> hierarchy;
     findContours( mask, contours, hierarchy, CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE, Point(0, 0) );
-    
-    double largest_area=0;
-    int largest_contour_index=0;
-    
-    for( int i = 0; i< contours.size(); i++ ) // iterate through each contour.
-    {
-        double a = contourArea( contours[i],false);  //  Find the area of contour
-        if(a > largest_area)
-        {
-            largest_area = a;
-            largest_contour_index = i;                //Store the index of largest contour
-        }
-    }
-    
+
     contourMask = Mat(mask.rows, mask.cols, CV_8UC1, Scalar::all(0));
     
     if (channels == 1)
@@ -172,6 +159,19 @@ void getContourMask(Mat srcImage, Rect rect, Mat &contourMask)
     }
     else
     {
+        double largest_area=0;
+        int largest_contour_index=0;
+        
+        for( int i = 0; i< contours.size(); i++ ) // iterate through each contour.
+        {
+            double a = contourArea( contours[i],false);  //  Find the area of contour
+            if(a > largest_area)
+            {
+                largest_area = a;
+                largest_contour_index = i;                //Store the index of largest contour
+            }
+        }
+        
         drawContours( contourMask, contours,largest_contour_index, Scalar(255,255,255), CV_FILLED, 8, hierarchy );
     }
 }
@@ -225,7 +225,7 @@ double getProbability(double x, double mean, double stddev)
     return p;
 }
 
-void initSurroundingRandomisation(Mat image, Mat inpainted, Mat dilatedContourMask, Mat rectMask, Rect rect)
+void initSurroundingRandomisation(Mat image, Mat dilatedContourMask, Mat rectMask, Rect rect)
 {
     Mat mask;
     bitwise_not(dilatedContourMask, mask);
@@ -302,19 +302,12 @@ void initSurroundingRandomisation(Mat image, Mat inpainted, Mat dilatedContourMa
             }
         }
     }
-    
-//    minMaxLoc( surroundingRandomisationDistances, &surroundingRandomisationMin, &surroundingRandomisationMax, 0, 0, Mat() );
-
-//    float meanVal = mean(surroundingRandomisationDistances)[0];
 }
 
 void surroundingRandomisation(Mat image, Mat inpainted, Mat &output, Mat dilatedContourMask, Mat rectMask, Rect rect)
 {
-    double start, end;
-    
     image.copyTo(output);
     
-    start = get_timestamp();
     for (int y = rect.y; y < rect.y + rect.height; y++)
     {
         for (int x = rect.x; x < rect.x + rect.width; x++)
@@ -323,10 +316,8 @@ void surroundingRandomisation(Mat image, Mat inpainted, Mat &output, Mat dilated
             if (dilatedContourMask.at<uchar>(y, x) == 255 && rectMask.at<uchar>(y, x) == 0)
             {
                 float distance = transformedSurroundingRandomisationDistances.at<float>(y, x);
-                
+
                 double p = getProbability(distance, 0, 0);
-                
-//                p = p + (p - 0.5) / 2;
                 
                 output.at<Vec3b>(y, x) = image.at<Vec3b>(y, x) * p + inpainted.at<Vec3b>(y, x) * (1 - p);
             }
@@ -342,9 +333,6 @@ void surroundingRandomisation(Mat image, Mat inpainted, Mat &output, Mat dilated
             }
         }
     }
-    end = get_timestamp();
-//    freopen("debug.txt", "a", stdout);
-//    printf("output time = %f\n", end-start);
 }
 
 void resizeImage(Mat image, Mat &outputImage, double &widthRatio, double &heightRatio)
@@ -353,57 +341,6 @@ void resizeImage(Mat image, Mat &outputImage, double &widthRatio, double &height
     heightRatio = desiredHeight * 1.0 / image.rows;
         
     resize(image, outputImage, Size(desiredWidth, desiredHeight));
-}
-
-extern "C" int EXPORT_API readImage(int height, int width, int channels, unsigned char imageData[])
-{
-    Mat image = imageData2Mat(height, width, channels, imageData);
-    
-    if (image.empty())
-    {
-        return 0;
-    }
-    else
-    {
-        //imshow("show image", image);
-//        imwrite("captured.jpg", image);
-        
-        return 1;
-    }
-}
-
-extern "C" void EXPORT_API drawRect(int height, int width, int channels, unsigned char imageData[], RECT2D bbox)
-{
-    Mat image = imageData2Mat(height, width, channels, imageData);
-    Rect2d rect = getRect2d(bbox);
-    
-    rectangle(image, rect, Scalar( 255, 0, 0 ), 2, 1 );
-    
-//    imwrite("rect.jpg", image);
-}
-
-extern "C" void EXPORT_API initTracking(int height, int width, int channels, unsigned char imageData[], RECT2D bbox, int method)
-{
-    Mat image = imageData2Mat(height, width, channels, imageData);
-    Rect2d rect = getRect2d(bbox);
-    
-    dRUtil.initTracking(image, rect, (TrackingMethod)method);
-}
-
-extern "C" RECT2D EXPORT_API tracking(int height, int width, int channels, unsigned char imageData[], RECT2D bbox)
-{
-    Mat image = imageData2Mat(height, width, channels, imageData);
-    Rect2d rect = getRect2d(bbox);
-    
-    Rect2d bounding = dRUtil.tracking(image, rect);
-    
-    RECT2D newBounding;
-    newBounding.x = bounding.x;
-    newBounding.y = bounding.y;
-    newBounding.width = bounding.width;
-    newBounding.height = bounding.height;
-    
-    return newBounding;
 }
 
 extern "C" void EXPORT_API initParameters(int h, int w, int c, int dh, int dw, int cps, int ibs)
@@ -417,25 +354,36 @@ extern "C" void EXPORT_API initParameters(int h, int w, int c, int dh, int dw, i
     illuminationBlockSize = ibs;
 }
 
-extern "C" void EXPORT_API tempFourPointsInpainting(unsigned char* outputData, unsigned char currentImageData[], POINT2D currentBoundingPoint2ds[], POINT2D currentControlPoint2ds[], bool useIlluminationAdaptation, bool useSurroundingRandomisation)
+extern "C" void EXPORT_API currentFrameInpainting(unsigned char* outputData, unsigned char currentImageData[], POINT2D currentBoundingPoint2ds[], POINT2D currentControlPoint2ds[], bool useIlluminationAdaptation, bool useSurroundingRandomisation)
 {
+//    freopen("debug.txt", "a", stdout);
+    
+    double start, end;
+    
+    start = get_timestamp();
     Mat image = imageData2Mat(height, width, channels, currentImageData);
     
     if (channels == 1)
     {
         cvtColor(image, image, CV_GRAY2BGR);
     }
-    
-    double start, end;
+    end = get_timestamp();
+//    printf("imageData2Mat time = %f\n", end-start);
     
     double widthRatio = 1, heightRatio = 1;
     Mat currentImage;
     
-    start = get_timestamp();
-    resizeImage(image, currentImage, widthRatio, heightRatio);
-    end = get_timestamp();
-//    freopen("debug.txt", "a", stdout);
-//    printf("resizeImage 1 time = %f\n", end-start);
+    if (width != desiredWidth && height != desiredHeight)
+    {
+        start = get_timestamp();
+        resizeImage(image, currentImage, widthRatio, heightRatio);
+        end = get_timestamp();
+        //    printf("resizeImage 1 time = %f\n", end-start);
+    }
+    else
+    {
+        image.copyTo(currentImage);
+    }
     
     vector<Point> currentBoundingPoints;
     currentBoundingPoints.push_back(getPoint(currentBoundingPoint2ds[0], widthRatio, heightRatio));
@@ -498,7 +446,6 @@ extern "C" void EXPORT_API tempFourPointsInpainting(unsigned char* outputData, u
         inpainted.copyTo(adaptedInpainted);
     }
     end = get_timestamp();
-//    freopen("debug.txt", "a", stdout);
 //    printf("adaptation time = %f\n", end-start);
     
     start = get_timestamp();
@@ -506,7 +453,6 @@ extern "C" void EXPORT_API tempFourPointsInpainting(unsigned char* outputData, u
     Mat transformedInpainted;
     warpPerspective(adaptedInpainted, transformedInpainted, M, Size(desiredWidth, desiredHeight));
     end = get_timestamp();
-//    freopen("debug.txt", "a", stdout);
 //    printf("warpPerspective time = %f\n", end-start);
     
     start = get_timestamp();
@@ -526,7 +472,6 @@ extern "C" void EXPORT_API tempFourPointsInpainting(unsigned char* outputData, u
     currentImage.copyTo(imageDest);
     transformedInpainted.copyTo(imageDest, currentMask);
     end = get_timestamp();
-//    freopen("debug.txt", "a", stdout);
 //    printf("copy time = %f\n", end-start);
     
     start = get_timestamp();
@@ -546,17 +491,21 @@ extern "C" void EXPORT_API tempFourPointsInpainting(unsigned char* outputData, u
         result.copyTo(imageDest);
     }
     end = get_timestamp();
-//    freopen("debug.txt", "a", stdout);
-//    printf("surroundingRandomisation time = %f\n", end-start);
+//    printf("surroundingRandomisation time = %f\n\n", end-start);
     
     Mat resizedImageDest;
-    
-    start = get_timestamp();
-    resize(imageDest, resizedImageDest, Size(width, height));
-    end = get_timestamp();
-//    freopen("debug.txt", "a", stdout);
-//    printf("resize 2 time = %f\n", end-start);
-    
+    if (width != desiredWidth && height != desiredHeight)
+    {
+        start = get_timestamp();
+        resize(imageDest, resizedImageDest, Size(width, height));
+        end = get_timestamp();
+        //    printf("resize 2 time = %f\n", end-start);
+    }
+    else
+    {
+        imageDest.copyTo(resizedImageDest);
+    }
+
     start = get_timestamp();
     // Convert from RGB to ARGB
     Mat argb_img;
@@ -569,12 +518,16 @@ extern "C" void EXPORT_API tempFourPointsInpainting(unsigned char* outputData, u
     
     memcpy(outputData, argb_img.data, argb_img.total() * argb_img.elemSize());
     end = get_timestamp();
-//    freopen("debug.txt", "a", stdout);
 //    printf("cvtColor time = %f\n", end-start);
 }
 
-extern "C" void EXPORT_API initFourPointsInpainting(unsigned char frame0ImageData[], POINT2D frame0BoundingPoint2ds[], POINT2D frame0ControlPoint2ds[], int method, int parameter, bool useNormalisation)
+extern "C" void EXPORT_API initInpainting(unsigned char frame0ImageData[], POINT2D frame0BoundingPoint2ds[], POINT2D frame0ControlPoint2ds[], int method, int parameter, bool useNormalisation)
 {
+//    freopen("debug.txt", "a", stdout);
+    
+    double start, end;
+    
+    start = get_timestamp();
     frame0 = imageData2Mat(height, width, channels, frame0ImageData);
     
     if (channels == 1)
@@ -583,7 +536,11 @@ extern "C" void EXPORT_API initFourPointsInpainting(unsigned char frame0ImageDat
     }
     
     double widthRatio = 1, heightRatio = 1;
-    resizeImage(frame0, frame0, widthRatio, heightRatio);
+    
+    if (width != desiredWidth && height != desiredHeight)
+    {
+        resizeImage(frame0, frame0, widthRatio, heightRatio);
+    }
     
     frame0BoundingPoints.push_back(getPoint(frame0BoundingPoint2ds[0], widthRatio, heightRatio));
     frame0BoundingPoints.push_back(getPoint(frame0BoundingPoint2ds[1], widthRatio, heightRatio));
@@ -599,7 +556,10 @@ extern "C" void EXPORT_API initFourPointsInpainting(unsigned char frame0ImageDat
     {
         frame0ControlPoints.push_back(getPoint(frame0ControlPoint2ds[i], widthRatio, heightRatio));
     }
+    end = get_timestamp();
+//    printf("ready time = %f\n", end-start);
     
+    start = get_timestamp();
     getRectMask(frame0, frame0BoundingPoints, rect, rectMask);
     
     Mat contourMask;
@@ -615,8 +575,8 @@ extern "C" void EXPORT_API initFourPointsInpainting(unsigned char frame0ImageDat
     }
     
     bitwise_not(dilatedContourMask, dilatedContourMask);
-    
-//    imshow("input", frame0);
+    end = get_timestamp();
+//    printf("mask time = %f\n", end-start);
     
     Mat normalisedFrame0;
     if (channels == 3 && useNormalisation)
@@ -627,9 +587,8 @@ extern "C" void EXPORT_API initFourPointsInpainting(unsigned char frame0ImageDat
     {
         frame0.copyTo(normalisedFrame0);
     }
-
-//    imshow("normalisedFrame0", normalisedFrame0);
     
+    start = get_timestamp();
     if (((InpaintingMethod)method) == InpaintingMethod::INPAINTING_EXEMPLAR)
     {
         Mat sourceMask;
@@ -657,19 +616,23 @@ extern "C" void EXPORT_API initFourPointsInpainting(unsigned char frame0ImageDat
         DRUtil dRUtil;
         inpainted = dRUtil.inpaint(normalisedFrame0, rectMask, (InpaintingMethod)method, parameter);
     }
+    end = get_timestamp();
+//    printf("inpaint time = %f\n", end-start);
+
+    start = get_timestamp();
+    initSurroundingRandomisation(frame0, dilatedContourMask, rectMask, rect);
+    end = get_timestamp();
+//    printf("initSurroundingRandomisation time = %f\n", end-start);
     
-//    imshow("inpainted", inpainted);
-    
-    initSurroundingRandomisation(frame0, inpainted, dilatedContourMask, rectMask, rect);
-    
+    start = get_timestamp();
     Illumination::initAdaptation();
+    end = get_timestamp();
+//    printf("initAdaptation time = %f\n", end-start);
     
     if (channels != 1 && useNormalisation)
     {
         Mat adapted = Illumination::adaptation(normalisedFrame0, frame0, inpainted, rect, frame0ControlPoints, frame0ControlPoints);
-        
-        //    imshow("adapted", adapted);
-        
+
         adapted.copyTo(inpainted);
     }
 }

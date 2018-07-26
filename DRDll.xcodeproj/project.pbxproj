@@ -450,13 +450,20 @@
 		9FDD7AEA20D00C00006CAEF8 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CC = "";
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_IDENTITY = "Mac Developer";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				DEVELOPMENT_TEAM = M5BZ48L2T7;
 				HEADER_SEARCH_PATHS = /usr/local/Cellar/opencv/3.4.1_5/include;
 				INFOPLIST_FILE = DRDll/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
-				LIBRARY_SEARCH_PATHS = /usr/local/Cellar/opencv/3.4.1_5/lib;
+				LIBRARY_SEARCH_PATHS = (
+					/usr/local/Cellar/opencv/3.4.1_5/lib,
+					/usr/local/opt/llvm/lib,
+				);
+				OTHER_CFLAGS = "";
 				OTHER_LDFLAGS = (
 					"-lopencv_superres",
 					"-lopencv_videostab",
@@ -509,13 +516,21 @@
 		9FDD7AEB20D00C00006CAEF8 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CC = "";
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_IDENTITY = "Mac Developer";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				DEVELOPMENT_TEAM = M5BZ48L2T7;
+				GCC_OPTIMIZATION_LEVEL = fast;
 				HEADER_SEARCH_PATHS = /usr/local/Cellar/opencv/3.4.1_5/include;
 				INFOPLIST_FILE = DRDll/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
-				LIBRARY_SEARCH_PATHS = /usr/local/Cellar/opencv/3.4.1_5/lib;
+				LIBRARY_SEARCH_PATHS = (
+					/usr/local/Cellar/opencv/3.4.1_5/lib,
+					/usr/local/opt/llvm/lib,
+				);
+				OTHER_CFLAGS = "";
 				OTHER_LDFLAGS = (
 					"-lopencv_superres",
 					"-lopencv_videostab",

@@ -43,8 +43,15 @@ float distancePoint2Line(int x1, int y1, int x2, int y2, int x0, int y0)
     return distance;
 }
 
+uchar averageMat(Mat input)
+{
+    return mean(input).val[0];
+}
+
 uchar medianMat(Mat input)
 {
+    return averageMat(input);
+    
     // spread Input Mat to single row
     Mat output = Mat(1, input.rows*input.cols, CV_8UC1);
     
@@ -65,24 +72,6 @@ uchar medianMat(Mat input)
     
     std::nth_element(vecFromMat.begin(), vecFromMat.begin() + vecFromMat.size() / 2, vecFromMat.end());
     return (uchar)vecFromMat[vecFromMat.size() / 2];
-}
-
-uchar averageMat(Mat input)
-{
-//    int sum = 0;
-//    for (int i = 0; i < input.rows; i++)
-//    {
-//        for (int j = 0; j < input.cols; j++)
-//        {
-//            sum += (int)input.at<uchar>(i, j);
-//        }
-//    }
-//
-//    int average = (int)(1.0 * sum / (input.rows * input.cols));
-    
-    return mean(input).val[0];
-    
-    //return (uchar)average;
 }
 
 Mat getMedian(Mat image, Mat mask, int blockSize)
@@ -232,13 +221,11 @@ void Illumination::initAdaptation()
 {
     cvtColor(inpainted, inpaintedYUV, CV_BGR2YUV);
     split(inpaintedYUV, inpainted_planes);
-//    inpaintedY = inpainted_planes[0];
     
     Mat frame0YUV;
     cvtColor(frame0, frame0YUV, CV_BGR2YUV);
     vector<Mat> frame0_planes;
     split(frame0YUV, frame0_planes);
-//    extractChannel(frame0YUV, frame0Y, 0);
     
     // calculate Median of each control points block M(ci)
     for (int i = 0; i < frame0ControlPoints.size(); i++)
@@ -470,23 +457,20 @@ Mat Illumination::adaptation(Mat frame0, Mat current, Mat inpainted, Rect bbox, 
 {
     double start, end;
     
+//    freopen("debug.txt", "a", stdout);
+    
     start = get_timestamp();
     // extract Y channel
     Mat currentYUV;
     cvtColor(current, currentYUV, CV_BGR2YUV);
-//    Mat currentY;
+
     vector<Mat> current_planes;
     split(currentYUV, current_planes);
-//    extractChannel(currentYUV, currentY, 0);
-    
+   
     Mat outputYUV;
     inpaintedYUV.copyTo(outputYUV);
-    
-//    Mat outputY;
-//    inpaintedY.copyTo(outputY);
     end = get_timestamp();
-//    freopen("debug.txt", "a", stdout);
-//    printf("copy time = %f\n", end-start);
+//    printf("extract time = %f\n", end-start);
     
     // calculate Median of each control points block M(ci)
     vector<Vec3i> currentControlPointsMedian;
@@ -518,10 +502,6 @@ Mat Illumination::adaptation(Mat frame0, Mat current, Mat inpainted, Rect bbox, 
             regionSizeHeight = currentYUV.rows - y;
         }
         
-//        Mat input = currentY(Rect(x, y, regionSizeWidth, regionSizeHeight));
-//
-//        currentControlPointsMedian.push_back(medianMat(input));
-        
         Mat inputY = (current_planes[0])(Rect(x, y, regionSizeWidth, regionSizeHeight));
         Mat inputU = (current_planes[1])(Rect(x, y, regionSizeWidth, regionSizeHeight));
         Mat inputV = (current_planes[2])(Rect(x, y, regionSizeWidth, regionSizeHeight));
@@ -529,7 +509,6 @@ Mat Illumination::adaptation(Mat frame0, Mat current, Mat inpainted, Rect bbox, 
         currentControlPointsMedian.push_back(Vec3i(medianMat(inputY), medianMat(inputU), medianMat(inputV)));
     }
     end = get_timestamp();
-//    freopen("debug.txt", "a", stdout);
 //    printf("current median time = %f\n", end-start);
     
     int currentEightControlPointsMappingCount = 0;
@@ -537,7 +516,6 @@ Mat Illumination::adaptation(Mat frame0, Mat current, Mat inpainted, Rect bbox, 
     start = get_timestamp();
     // Ix = (sum((x - ci)^-4) * Ici) / (sum((x - ci)^-4))
     // Ici = Mcurrent - Mframe0
-    freopen("debug.txt", "a", stdout);
     for (int row = bbox.y; row < bbox.y + bbox.height; row++)
     {
         for (int col = bbox.x; col < bbox.x + bbox.width; col++)
@@ -571,8 +549,6 @@ Mat Illumination::adaptation(Mat frame0, Mat current, Mat inpainted, Rect bbox, 
                         || frame0ControlPointsMedian[index][1] < 0 || frame0ControlPointsMedian[index][1] > 255
                         || frame0ControlPointsMedian[index][2] < 0 || frame0ControlPointsMedian[index][2] > 255)
                     {
-                        printf("frame0ControlPointsMedian %d = %d %d %d\n", index,
-                               frame0ControlPointsMedian[index][0], frame0ControlPointsMedian[index][1], frame0ControlPointsMedian[index][2]);
                         continue;
                     }
                     
@@ -580,11 +556,8 @@ Mat Illumination::adaptation(Mat frame0, Mat current, Mat inpainted, Rect bbox, 
                         || currentControlPointsMedian[index][1] < 0 || currentControlPointsMedian[index][1] > 255
                         || currentControlPointsMedian[index][2] < 0 || currentControlPointsMedian[index][2] > 255)
                     {
-                        printf("currentControlPointsMedian %d = %d %d %d\n", index,
-                               currentControlPointsMedian[index][0], currentControlPointsMedian[index][1], currentControlPointsMedian[index][2]);
                         continue;
                     }
-                    
                     
                     normResult = norm(currentPoint - currentControlPoints[index]);
                     normPowResult = 1.0 / (normResult * normResult * normResult * normResult);
@@ -594,8 +567,7 @@ Mat Illumination::adaptation(Mat frame0, Mat current, Mat inpainted, Rect bbox, 
                     denominator += normPowResult;
                     
                     Vec3i Ici = currentControlPointsMedian[index] - frame0ControlPointsMedian[index];
-//                    printf("Ici = %d, %d, %d\n", Ici[0], Ici[1], Ici[2]);
-                    
+
                     // numerator += (pow(normResult, -4) * Ici);
                     numeratorY += normPowResult * Ici[0];
                     numeratorU += normPowResult * Ici[1];
@@ -620,22 +592,13 @@ Mat Illumination::adaptation(Mat frame0, Mat current, Mat inpainted, Rect bbox, 
         }
     }
     end = get_timestamp();
-//    freopen("debug.txt", "a", stdout);
 //    printf("Ix time = %f\n", end-start);
     
     start = get_timestamp();
     // merge back
     Mat output;
-//    vector<Mat> output_planes(3);
-//    output_planes[0] = outputY;
-//    output_planes[1] = inpainted_planes[1];
-//    output_planes[2] = inpainted_planes[2];
-    
-//    merge(output_planes, output);
-    
     cvtColor(outputYUV, output, CV_YUV2BGR);
     end = get_timestamp();
-//    freopen("debug.txt", "a", stdout);
 //    printf("merge time = %f\n", end-start);
     
     return output;
